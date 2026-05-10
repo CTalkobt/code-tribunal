@@ -132,6 +132,8 @@ typedef struct {
     int           pool_event_count;
 
     char          judge_model[64];
+    char          fast_model[64];         /* fast voting model (phi4-mini) */
+    int           fast_mode;              /* use fast_model for voting/elections/pruning */
     char          consensus[MAX_RESPONSE_LEN];
     char          db_path[MAX_PATH_LEN];
     int           auto_apply;

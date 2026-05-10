@@ -14,12 +14,13 @@ static void usage(const char *argv0)
         "  -r <rounds>       Debate rounds, 1-%d (default: 1)\n"
         "  -c <config>       Config file (default: config/council.conf)\n"
         "  -y                Auto-apply changes without prompting\n"
+        "  --fast            Use phi4-mini for voting (2-3x faster elections/pruning)\n"
         "  -h                Show this help\n"
         "\n"
         "Examples:\n"
         "  %s -t 'fix memory leaks' src/foo.c src/bar.c\n"
         "  %s -r 2 -t 'harden error handling' src/\n"
-        "  %s -y -r 3 -t 'optimise hot path' src/render.c src/math.c\n",
+        "  %s --fast -r 3 -t 'optimise hot path' src/render.c src/math.c\n",
         argv0, MAX_ROUNDS, argv0, argv0, argv0);
 }
 
@@ -30,7 +31,19 @@ int main(int argc, char *argv[])
     const char *config_path = "config/council.conf";
     int         rounds      = 1;
     int         auto_apply  = 0;
+    int         fast_mode   = 0;
     int         opt;
+
+    /* Check for long options and remove them from argv before getopt */
+    int new_argc = 1;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--fast") == 0) {
+            fast_mode = 1;
+        } else {
+            argv[new_argc++] = argv[i];
+        }
+    }
+    argc = new_argc;
 
     while ((opt = getopt(argc, argv, "t:r:c:yh")) != -1) {
         switch (opt) {
@@ -72,6 +85,11 @@ int main(int argc, char *argv[])
     if (rounds > MAX_ROUNDS) rounds = MAX_ROUNDS;
     c->round_count = rounds;
     c->auto_apply  = auto_apply;
+    c->fast_mode   = fast_mode;
+    if (fast_mode) {
+        printf("[council] fast mode enabled (using phi4-mini for voting)\n");
+        strncpy(c->fast_model, "phi4-mini", sizeof(c->fast_model) - 1);
+    }
     strncpy(c->task, task, sizeof(c->task) - 1);
 
     /* Load all paths given on command line */

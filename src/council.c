@@ -131,6 +131,15 @@ void extract_code_blocks(const char *text, char *out, size_t out_size)
 }
 
 /* ------------------------------------------------------------------ */
+/* Helper: get voting model (uses fast_model if enabled)                */
+/* ------------------------------------------------------------------ */
+
+static const char *voting_model(Council *c)
+{
+    return c->fast_mode ? c->fast_model : c->judge_model;
+}
+
+/* ------------------------------------------------------------------ */
 /* Audit logging                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -289,6 +298,7 @@ int council_init(Council *c, const char *config_path)
 
     const char *default_model = "llama3.2";
     strncpy(c->judge_model, default_model, sizeof(c->judge_model) - 1);
+    strncpy(c->fast_model, "phi4-mini", sizeof(c->fast_model) - 1);
 
     /* Static analysts */
     c->analyst_count = 4; /* security, performance, correctness, style */
@@ -656,7 +666,7 @@ static void run_election(Council *c, int after_round, const char *tree_buf)
             "You are the %s analyst. You may NOT vote for yourself.\n\n%s",
             c->analysts[i].role_name, ctx);
         fprintf(stderr, "[election] %s voting...\n", c->analysts[i].role_name);
-        ollama_chat(c->analysts[i].model, vote_sys,
+        ollama_chat(voting_model(c), vote_sys,
                     vote_user[i], vote_responses[i], sizeof(vote_responses[0]));
     }
     free(ctx);
@@ -781,7 +791,7 @@ static void run_spawn_vote(Council *c, int round,
             codebase);
 
         responses[i][0] = '\0';
-        ollama_chat(c->analysts[i].model, spawn_sys,
+        ollama_chat(voting_model(c), spawn_sys,
                     user_msg, responses[i], sizeof(responses[0]));
 
         const char *need = strstr(responses[i], "NEED_ROLE:");
@@ -825,8 +835,8 @@ static void run_spawn_vote(Council *c, int round,
         return;
     }
     gen_response[0] = '\0';
-    fprintf(stderr, "[spawn] generating role prompt with %s...\n", c->judge_model);
-    ollama_chat(c->judge_model, role_gen_prompt, gen_user,
+    fprintf(stderr, "[spawn] generating role prompt with %s...\n", voting_model(c));
+    ollama_chat(voting_model(c), role_gen_prompt, gen_user,
                 gen_response, MAX_RESPONSE_LEN);
 
     /* Parse ROLE_NAME and SYSTEM_PROMPT from response */
@@ -965,7 +975,7 @@ static void run_prune_check(Council *c, int round)
             snprintf(voter_user, vu_size,
                 "You are the %s analyst.\n\n%s",
                 c->analysts[j].role_name, voter_ctx);
-            ollama_chat(c->analysts[j].model, prune_sys,
+            ollama_chat(voting_model(c), prune_sys,
                         voter_user, response, sizeof(response));
             free(voter_user);
             const char *rv = strstr(response, "REMOVE:");
