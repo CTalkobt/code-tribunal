@@ -16,6 +16,13 @@
 #define OLLAMA_URL            "http://localhost:11434/api/chat"
 #define DB_PATH               "lessons/council.db"
 
+#define MAX_EXCLUDE_DIRS        32
+#define MAX_GITIGNORE_PATTERNS  64
+#define MAX_GITIGNORE_PAT_LEN   128
+#define MAX_MANIFEST_LEN        16384
+#define MAX_SKIPPED_LOG         5120
+#define DEFAULT_MAX_FILE_BYTES  32768
+
 /* Per-file output delimiter emitted by the arbiter */
 #define FILE_MARKER           "/* COUNCIL_FILE: "
 #define FILE_MARKER_END       " */"
@@ -42,6 +49,7 @@ typedef enum {
 typedef struct {
     char path[MAX_PATH_LEN];
     char content[MAX_CODE_LEN / MAX_FILES];
+    char summary[384];
 } FileEntry;
 
 typedef struct {
@@ -134,6 +142,17 @@ typedef struct {
     char          judge_model[64];
     char          fast_model[64];         /* fast voting model (phi4-mini) */
     int           fast_mode;              /* use fast_model for voting/elections/pruning */
+
+    int           max_file_bytes;         /* skip files larger than this (0 = no limit) */
+    char          exclude_dirs[MAX_EXCLUDE_DIRS][64];
+    int           exclude_dir_count;
+    char          gitignore_patterns[MAX_GITIGNORE_PATTERNS][MAX_GITIGNORE_PAT_LEN];
+    int           gitignore_count;
+
+    char          manifest[MAX_MANIFEST_LEN];
+    char          skipped_log[MAX_SKIPPED_LOG];
+    size_t        skipped_log_pos;
+
     char          consensus[MAX_RESPONSE_LEN];
     char          db_path[MAX_PATH_LEN];
     int           auto_apply;

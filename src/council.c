@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <strings.h>   /* strcasecmp */
+#include <fnmatch.h>
 #include "council.h"
 
 /* ------------------------------------------------------------------ */
@@ -221,6 +222,275 @@ static void log_debate_audit(Council *c, const char *task_hash,
 }
 
 /* ------------------------------------------------------------------ */
+/* Directory/file filtering                                              */
+/* ------------------------------------------------------------------ */
+
+static const char * const hardcoded_exclude_dirs[] = {
+    "node_modules", "build", "dist", "target", ".git",
+    "__pycache__", ".venv", "venv", "vendor", "third_party",
+    "out", ".cache", ".idea", ".vscode",
+    NULL
+};
+
+static int is_excluded_dir(const Council *c, const char *name)
+{
+    for (int i = 0; hardcoded_exclude_dirs[i]; i++)
+        if (strcmp(hardcoded_exclude_dirs[i], name) == 0) return 1;
+    for (int i = 0; i < c->exclude_dir_count; i++)
+        if (strcmp(c->exclude_dirs[i], name) == 0) return 1;
+    return 0;
+}
+
+static void load_gitignore(Council *c, const char *dir_path)
+{
+    char gi_path[MAX_PATH_LEN];
+    snprintf(gi_path, sizeof(gi_path), "%s/.gitignore", dir_path);
+
+    FILE *f = fopen(gi_path, "r");
+    if (!f) return;
+
+    char line[MAX_GITIGNORE_PAT_LEN];
+    while (fgets(line, sizeof(line), f) && c->gitignore_count < MAX_GITIGNORE_PATTERNS) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' || line[len-1] == ' '))
+            line[--len] = '\0';
+
+        if (len == 0 || line[0] == '#') continue;
+
+        if (line[0] == '!') {
+            fprintf(stderr, "[load] .gitignore negation not implemented: %s\n", line);
+            continue;
+        }
+
+        strncpy(c->gitignore_patterns[c->gitignore_count++], line, MAX_GITIGNORE_PAT_LEN - 1);
+    }
+    fclose(f);
+}
+
+static int is_gitignored(const Council *c, const char *name, int is_dir)
+{
+    for (int i = 0; i < c->gitignore_count; i++) {
+        const char *pat = c->gitignore_patterns[i];
+        size_t plen = strlen(pat);
+
+        int dir_only = (plen > 0 && pat[plen - 1] == '/');
+        if (dir_only && !is_dir) continue;
+
+        char mpat[MAX_GITIGNORE_PAT_LEN];
+        strncpy(mpat, pat, sizeof(mpat) - 1);
+        mpat[sizeof(mpat) - 1] = '\0';
+        size_t mlen = strlen(mpat);
+        if (mlen > 0 && mpat[mlen - 1] == '/') mpat[--mlen] = '\0';
+        const char *p = (mpat[0] == '/') ? mpat + 1 : mpat;
+
+        if (fnmatch(p, name, 0) == 0) return 1;
+    }
+    return 0;
+}
+
+static void generate_file_summary(const char *path, const char *content,
+                                   char *summary, size_t sum_size)
+{
+    const char *ext = strrchr(path, '.');
+    const char *ftype = "?";
+    int is_c = 0, is_py = 0;
+    if (ext) {
+        if (!strcmp(ext,".c")||!strcmp(ext,".h")||
+            !strcmp(ext,".cpp")||!strcmp(ext,".cc")) { ftype="C";  is_c=1; }
+        else if (!strcmp(ext,".py"))                 { ftype="Py"; is_py=1; }
+        else if (!strcmp(ext,".asm")||!strcmp(ext,".s")) ftype="ASM";
+    }
+
+    int lines = 0;
+    for (const char *p = content; *p; p++)
+        if (*p == '\n') lines++;
+
+    static const char * const c_keywords[] = {
+        "if","for","while","switch","return","else","do","sizeof",NULL
+    };
+
+    char includes[6][32]; int ninc = 0;
+    char funcs[6][40];    int nfunc = 0;
+    char types[4][32];    int ntype = 0;
+    char pydefs[6][40];   int npydef = 0;
+    char pyclasses[4][32];int npycls = 0;
+
+    const char *line = content;
+    while (*line && (ninc < 6 || nfunc < 6 || ntype < 4 || npydef < 6 || npycls < 4)) {
+        const char *eol = strchr(line, '\n');
+        if (!eol) eol = line + strlen(line);
+
+        if (is_c) {
+            if (ninc < 6 && !strncmp(line, "#include", 8)) {
+                const char *q = line + 8;
+                while (*q == ' ' || *q == '\t') q++;
+                char delim_end = (*q == '<') ? '>' : '"';
+                const char *start = q + 1;
+                const char *end = strchr(start, delim_end);
+                if (end) {
+                    const char *slash = strrchr(start, '/');
+                    const char *base = slash ? slash + 1 : start;
+                    const char *dot = strrchr(base, '.');
+                    size_t blen = dot ? (size_t)(dot-base) : (size_t)(end-base);
+                    if (blen > 0 && blen < sizeof(includes[0])) {
+                        memcpy(includes[ninc], base, blen);
+                        includes[ninc++][blen] = '\0';
+                    }
+                }
+            }
+            else if (nfunc < 6 && (line[0]=='_' || (line[0]>='a'&&line[0]<='z') ||
+                                    (line[0]>='A'&&line[0]<='Z'))) {
+                const char *paren = memchr(line, '(', (size_t)(eol-line));
+                const char *last = eol - 1;
+                while (last > line && (*last == ' ' || *last == '\r')) last--;
+                if (paren && *last != ';') {
+                    const char *q = paren - 1;
+                    while (q > line && (*q == ' ' || *q == '*')) q--;
+                    const char *end = q + 1;
+                    while (q > line && (*(q-1) == '_' ||
+                           (*(q-1)>='a'&&*(q-1)<='z') ||
+                           (*(q-1)>='A'&&*(q-1)<='Z') ||
+                           (*(q-1)>='0'&&*(q-1)<='9'))) q--;
+                    size_t flen = (size_t)(end - q);
+                    if (flen > 1 && flen < sizeof(funcs[0])) {
+                        char fname[40]; memcpy(fname, q, flen); fname[flen] = '\0';
+                        int kw = 0;
+                        for (int k = 0; c_keywords[k]; k++)
+                            if (!strcmp(c_keywords[k], fname)) { kw=1; break; }
+                        if (!kw) { memcpy(funcs[nfunc], fname, flen+1); nfunc++; }
+                    }
+                }
+            }
+            else if (ntype < 4 && !strncmp(line, "typedef", 7)) {
+                const char *q = line + 7;
+                while (*q == ' ') q++;
+                if (!strncmp(q,"struct",6)) q+=6;
+                else if (!strncmp(q,"enum",4)) q+=4;
+                else goto next_c_line;
+                while (*q == ' ') q++;
+                const char *semi = memchr(line, ';', (size_t)(eol-line));
+                if (semi) {
+                    const char *e = semi - 1;
+                    while (e > line && (*e == ' ' || *e == '\r')) e--;
+                    const char *s = e;
+                    while (s > line && (*(s-1)=='_'||(*(s-1)>='a'&&*(s-1)<='z')||
+                           (*(s-1)>='A'&&*(s-1)<='Z')||(*(s-1)>='0'&&*(s-1)<='9'))) s--;
+                    size_t tlen = (size_t)(e - s + 1);
+                    if (tlen > 1 && tlen < sizeof(types[0])) {
+                        memcpy(types[ntype], s, tlen); types[ntype++][tlen] = '\0';
+                    }
+                }
+            }
+        } else if (is_py) {
+            if (npydef < 6 && !strncmp(line, "def ", 4)) {
+                const char *s = line + 4;
+                const char *e = s;
+                while (*e && *e != '(' && *e != ':' && *e != '\n') e++;
+                size_t flen = (size_t)(e - s);
+                if (flen > 0 && flen < sizeof(pydefs[0])) {
+                    memcpy(pydefs[npydef], s, flen); pydefs[npydef++][flen] = '\0';
+                }
+            } else if (npycls < 4 && !strncmp(line, "class ", 6)) {
+                const char *s = line + 6;
+                const char *e = s;
+                while (*e && *e != '(' && *e != ':' && *e != '\n') e++;
+                size_t clen = (size_t)(e - s);
+                if (clen > 0 && clen < sizeof(pyclasses[0])) {
+                    memcpy(pyclasses[npycls], s, clen); pyclasses[npycls++][clen] = '\0';
+                }
+            }
+        }
+
+next_c_line:
+        line = (*eol == '\n') ? eol + 1 : eol;
+    }
+
+    size_t pos = 0;
+    int n = snprintf(summary + pos, sum_size - pos, "%s | %dL", ftype, lines);
+    if (n > 0) pos += (size_t)n;
+
+    if (is_c && ninc > 0) {
+        n = snprintf(summary + pos, sum_size - pos, " | inc:");
+        if (n > 0) pos += (size_t)n;
+        for (int i = 0; i < ninc && pos < sum_size - 2; i++) {
+            n = snprintf(summary + pos, sum_size - pos, "%s%s", i ? "," : "", includes[i]);
+            if (n > 0) pos += (size_t)n;
+        }
+    }
+    if (is_c && ntype > 0) {
+        n = snprintf(summary + pos, sum_size - pos, " | types:");
+        if (n > 0) pos += (size_t)n;
+        for (int i = 0; i < ntype && pos < sum_size - 2; i++) {
+            n = snprintf(summary + pos, sum_size - pos, "%s%s", i ? "," : "", types[i]);
+            if (n > 0) pos += (size_t)n;
+        }
+    }
+    if (is_c && nfunc > 0) {
+        n = snprintf(summary + pos, sum_size - pos, " | funcs:");
+        if (n > 0) pos += (size_t)n;
+        for (int i = 0; i < nfunc && pos < sum_size - 2; i++) {
+            n = snprintf(summary + pos, sum_size - pos, "%s%s", i ? "," : "", funcs[i]);
+            if (n > 0) pos += (size_t)n;
+        }
+    }
+    if (is_py) {
+        if (npycls > 0) {
+            n = snprintf(summary + pos, sum_size - pos, " | classes:");
+            if (n > 0) pos += (size_t)n;
+            for (int i = 0; i < npycls && pos < sum_size - 2; i++) {
+                n = snprintf(summary + pos, sum_size - pos, "%s%s", i ? "," : "", pyclasses[i]);
+                if (n > 0) pos += (size_t)n;
+            }
+        }
+        if (npydef > 0) {
+            n = snprintf(summary + pos, sum_size - pos, " | defs:");
+            if (n > 0) pos += (size_t)n;
+            for (int i = 0; i < npydef && pos < sum_size - 2; i++) {
+                n = snprintf(summary + pos, sum_size - pos, "%s%s", i ? "," : "", pydefs[i]);
+                if (n > 0) pos += (size_t)n;
+            }
+        }
+    }
+}
+
+static void append_skipped_log(Council *c, const char *path, const char *reason)
+{
+    int n = snprintf(c->skipped_log + c->skipped_log_pos,
+                     sizeof(c->skipped_log) - c->skipped_log_pos,
+                     "  [SKIPPED] %s (%s)\n", path, reason);
+    if (n > 0) c->skipped_log_pos += (size_t)n;
+}
+
+static void build_manifest(Council *c)
+{
+    c->manifest[0] = '\0';
+    size_t pos = 0;
+    int n;
+
+    int nskipped = 0;
+    for (const char *p = c->skipped_log; *p; p++)
+        if (*p == '\n') nskipped++;
+
+    n = snprintf(c->manifest, sizeof(c->manifest),
+                 "PROJECT MANIFEST (%d file%s loaded, %d skipped):\n",
+                 c->file_count, c->file_count == 1 ? "" : "s", nskipped);
+    if (n > 0) pos += (size_t)n;
+
+    for (int i = 0; i < c->file_count; i++) {
+        n = snprintf(c->manifest + pos, sizeof(c->manifest) - pos,
+                     "  %-42s | %s\n",
+                     c->files[i].path, c->files[i].summary);
+        if (n > 0) pos += (size_t)n;
+    }
+
+    if (c->skipped_log_pos > 0) {
+        n = snprintf(c->manifest + pos, sizeof(c->manifest) - pos,
+                     "%s", c->skipped_log);
+        if (n > 0) pos += (size_t)n;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Codebase loading                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -237,14 +507,32 @@ static int is_source_file(const char *name)
 static int load_file_entry(Council *c, const char *path, size_t *codebase_pos)
 {
     if (c->file_count >= MAX_FILES) return -1;
+
+    if (c->max_file_bytes > 0) {
+        struct stat sz_st;
+        if (stat(path, &sz_st) == 0 && (long)sz_st.st_size > (long)c->max_file_bytes) {
+            fprintf(stderr, "[load] skipping %s (too large: %ld bytes)\n",
+                    path, (long)sz_st.st_size);
+            char reason[64];
+            snprintf(reason, sizeof(reason), "too large: %ld bytes", (long)sz_st.st_size);
+            append_skipped_log(c, path, reason);
+            return -1;
+        }
+    }
+
     FILE *f = fopen(path, "r");
     if (!f) return -1;
 
     FileEntry *fe = &c->files[c->file_count];
     strncpy(fe->path, path, sizeof(fe->path) - 1);
+    fe->path[sizeof(fe->path) - 1] = '\0';
     size_t r = fread(fe->content, 1, sizeof(fe->content) - 1, f);
     fe->content[r] = '\0';
     fclose(f);
+
+    fe->summary[0] = '\0';
+    generate_file_summary(path, fe->content, fe->summary, sizeof(fe->summary));
+
     c->file_count++;
 
     int n = snprintf(c->codebase + *codebase_pos,
@@ -261,13 +549,26 @@ static int load_dir(Council *c, const char *dir_path, size_t *pos)
     char           path[MAX_PATH_LEN];
     struct stat    st;
     if (!d) return -1;
+
+    load_gitignore(c, dir_path);
+
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue;
         snprintf(path, sizeof(path), "%s/%s", dir_path, ent->d_name);
         if (stat(path, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode))        load_dir(c, path, pos);
-        else if (S_ISREG(st.st_mode) && is_source_file(ent->d_name))
+
+        if (S_ISDIR(st.st_mode)) {
+            if (is_excluded_dir(c, ent->d_name)) continue;
+            if (is_gitignored(c, ent->d_name, 1)) continue;
+            load_dir(c, path, pos);
+        } else if (S_ISREG(st.st_mode) && is_source_file(ent->d_name)) {
+            if (is_gitignored(c, ent->d_name, 0)) {
+                fprintf(stderr, "[load] skipping %s (gitignored)\n", path);
+                append_skipped_log(c, path, "gitignored");
+                continue;
+            }
             load_file_entry(c, path, pos);
+        }
     }
     closedir(d);
     return 0;
@@ -280,11 +581,22 @@ int council_load_codebase(Council *c, const char *path)
         fprintf(stderr, "[council] path not found: %s\n", path);
         return -1;
     }
+
     size_t pos = 0;
-    c->codebase[0] = '\0';
-    c->file_count  = 0;
-    if (S_ISDIR(st.st_mode)) return load_dir(c, path, &pos);
-    return load_file_entry(c, path, &pos);
+    c->codebase[0]     = '\0';
+    c->file_count      = 0;
+    c->manifest[0]     = '\0';
+    c->skipped_log[0]  = '\0';
+    c->skipped_log_pos = 0;
+    c->gitignore_count = 0;
+
+    int rc;
+    if (S_ISDIR(st.st_mode)) rc = load_dir(c, path, &pos);
+    else                      rc = load_file_entry(c, path, &pos);
+
+    build_manifest(c);
+
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -295,6 +607,7 @@ int council_init(Council *c, const char *config_path)
 {
     memset(c, 0, sizeof(*c));
     strncpy(c->db_path, DB_PATH, sizeof(c->db_path) - 1);
+    c->max_file_bytes = DEFAULT_MAX_FILE_BYTES;
 
     const char *default_model = "llama3.2";
     strncpy(c->judge_model, default_model, sizeof(c->judge_model) - 1);
@@ -354,6 +667,10 @@ int council_init(Council *c, const char *config_path)
                 else if (!strcmp(key,"prune_grace"))      c->prune_grace        = atoi(val);
                 else if (!strcmp(key,"min_analysts"))     c->min_analysts       = atoi(val);
                 else if (!strcmp(key,"prune_respawn"))    c->prune_respawn      = atoi(val);
+                else if (!strcmp(key,"max_file_bytes"))   c->max_file_bytes     = atoi(val);
+                else if (!strcmp(key,"exclude_dir") && c->exclude_dir_count < MAX_EXCLUDE_DIRS)
+                    strncpy(c->exclude_dirs[c->exclude_dir_count++], val,
+                            sizeof(c->exclude_dirs[0]) - 1);
                 else if (!strncmp(key,"model",5) && idx < c->analyst_count)
                     memcpy(c->analysts[idx++].model, val,
                            sizeof(c->analysts[0].model));
@@ -396,6 +713,7 @@ typedef struct {
     const char *codebase;
     const char *lessons;
     const char *decision_tree;
+    const char *manifest;
     char        peer_context[MAX_PROMPT_LEN];
 } ThreadArg;
 
@@ -413,19 +731,27 @@ static void *analyst_thread(void *arg)
     if (rnd == 0 || rnd == a->analyst->spawn_round) {
         snprintf(user_msg, msg_size,
             "PRIOR LESSONS:\n%s\n\n"
-            "TASK: %s\n\nCODEBASE:\n%s",
+            "TASK: %s\n\n"
+            "PROJECT MANIFEST:\n%s\n\n"
+            "CODEBASE:\n%s",
             a->lessons[0] ? a->lessons : "(none)",
-            a->task, a->codebase);
+            a->task,
+            a->manifest ? a->manifest : "(no manifest)",
+            a->codebase);
     } else {
         snprintf(user_msg, msg_size,
-            "TASK: %s\n\nCODEBASE:\n%s\n\n"
+            "TASK: %s\n\n"
+            "PROJECT MANIFEST:\n%s\n\n"
+            "CODEBASE:\n%s\n\n"
             "DECISION TREE:\n%s\n\n"
             "OTHER ANALYSTS' ROUND %d POSITIONS:\n%s\n\n"
             "YOUR ROUND %d POSITION:\n%s\n\n"
             "Maintain, concede, or contest each point. "
             "Reference the decision tree to avoid re-arguing settled issues. "
             "Name the file and line for any change you contest.",
-            a->task, a->codebase,
+            a->task,
+            a->manifest ? a->manifest : "(no manifest)",
+            a->codebase,
             a->decision_tree ? a->decision_tree : "(none)",
             rnd, a->peer_context,
             rnd, a->analyst->rounds[rnd - 1].text);
@@ -1149,6 +1475,7 @@ int council_run(Council *c)
             args[t].codebase      = c->codebase;
             args[t].lessons       = lessons;
             args[t].decision_tree = tree_buf;
+            args[t].manifest      = c->manifest;
             args[t].peer_context[0] = '\0';
 
             if (rnd > 0 && rnd > c->analysts[i].spawn_round)
@@ -1205,18 +1532,11 @@ int council_run(Council *c)
     int    n;
 
     n = snprintf(judge_prompt, judge_buf_size,
-        "TASK: %s\n\nFILES (%d):\n", c->task, c->file_count);
-    if (n > 0) pos += (size_t)n;
-
-    for (int i = 0; i < c->file_count; i++) {
-        n = snprintf(judge_prompt + pos, judge_buf_size - pos,
-                     "  %s\n", c->files[i].path);
-        if (n > 0) pos += (size_t)n;
-    }
-
-    n = snprintf(judge_prompt + pos, judge_buf_size - pos,
-        "\nDECISION TREE:\n%s\n\nORIGINAL CODEBASE:\n%s\n\n=== DEBATE ===\n",
-        tree_buf[0] ? tree_buf : "(none)", c->codebase);
+        "TASK: %s\n\nPROJECT MANIFEST:\n%s\n\nDECISION TREE:\n%s\n\nORIGINAL CODEBASE:\n%s\n\n=== DEBATE ===\n",
+        c->task,
+        c->manifest[0] ? c->manifest : "(no manifest)",
+        tree_buf[0] ? tree_buf : "(none)",
+        c->codebase);
     if (n > 0) pos += (size_t)n;
 
     for (int rnd = 0; rnd < c->round_count; rnd++) {
