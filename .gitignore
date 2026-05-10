@@ -1,0 +1,9 @@
+council
+src/*.o
+lessons/council.db
+council_output.c
+*.d
+
+*.swp
+*.tmp
+.plan/
