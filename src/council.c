@@ -131,6 +131,87 @@ void extract_code_blocks(const char *text, char *out, size_t out_size)
 }
 
 /* ------------------------------------------------------------------ */
+/* Audit logging                                                         */
+/* ------------------------------------------------------------------ */
+
+static void log_debate_audit(Council *c, const char *task_hash,
+                              const char *tree_buf)
+{
+    char log_path[256];
+    snprintf(log_path, sizeof(log_path), "audit_council_%s.txt", task_hash);
+
+    FILE *f = fopen(log_path, "w");
+    if (!f) return;
+
+    fprintf(f, "================================================================================\n");
+    fprintf(f, "COUNCIL DEBATE AUDIT LOG\n");
+    fprintf(f, "================================================================================\n\n");
+
+    fprintf(f, "TASK SUMMARY\n");
+    fprintf(f, "  Task: %s\n", c->task);
+    fprintf(f, "  Files analyzed: %d\n", c->file_count);
+    fprintf(f, "  Rounds: %d\n", c->round_count);
+    fprintf(f, "  Analysts: %d\n", c->analyst_count);
+    fprintf(f, "  Elections held: %d\n\n", c->election_count);
+
+    for (int rnd = 0; rnd < c->round_count; rnd++) {
+        fprintf(f, "--------------------------------------------------------------------------------\n");
+        fprintf(f, "ROUND %d RESPONSES\n", rnd + 1);
+        fprintf(f, "--------------------------------------------------------------------------------\n\n");
+
+        for (int i = 0; i < c->analyst_count; i++) {
+            if (c->analysts[i].stats.pruned) continue;
+            if (c->analysts[i].is_dynamic && rnd < c->analysts[i].spawn_round)
+                continue;
+
+            fprintf(f, "[%s / %s]\n", c->analysts[i].role_name,
+                    c->analysts[i].model);
+            fprintf(f, "Score: %d | Proposals adopted: %d | Challenges won: %d\n",
+                    c->analysts[i].stats.total_score,
+                    c->analysts[i].stats.proposals_adopted,
+                    c->analysts[i].stats.challenges_won);
+
+            if (c->analysts[i].rounds[rnd].error) {
+                fprintf(f, "ERROR: Failed to get response\n\n");
+            } else if (c->analysts[i].rounds[rnd].text[0] == '\0') {
+                fprintf(f, "(No response)\n\n");
+            } else {
+                fprintf(f, "%s\n\n", c->analysts[i].rounds[rnd].text);
+            }
+        }
+    }
+
+    fprintf(f, "--------------------------------------------------------------------------------\n");
+    fprintf(f, "DECISION TREE\n");
+    fprintf(f, "--------------------------------------------------------------------------------\n\n");
+    fprintf(f, "%s\n\n", tree_buf[0] ? tree_buf : "(No decision tree recorded)");
+
+    if (c->election_count > 0) {
+        fprintf(f, "--------------------------------------------------------------------------------\n");
+        fprintf(f, "ELECTIONS HELD\n");
+        fprintf(f, "--------------------------------------------------------------------------------\n\n");
+        for (int e = 0; e < c->election_count; e++) {
+            ElectionResult *er = &c->elections[e];
+            fprintf(f, "Election %d (after round %d):\n", e + 1, er->held_after_round + 1);
+            fprintf(f, "  Elected arbiter: %s (%s)\n",
+                    er->arbiter_role, er->arbiter_model);
+            fprintf(f, "  Votes: %d\n", er->votes[er->arbiter_idx]);
+            fprintf(f, "\n");
+        }
+    }
+
+    fprintf(f, "--------------------------------------------------------------------------------\n");
+    fprintf(f, "FINAL ARBITER CONSENSUS\n");
+    fprintf(f, "--------------------------------------------------------------------------------\n\n");
+    fprintf(f, "%s\n", c->consensus[0] ? c->consensus : "(No consensus generated)");
+
+    fprintf(f, "\n================================================================================\n");
+    fclose(f);
+
+    fprintf(stderr, "[audit] debate log saved to %s\n", log_path);
+}
+
+/* ------------------------------------------------------------------ */
 /* Codebase loading                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -1257,6 +1338,9 @@ int council_run(Council *c)
              c->election_count,
              arb && arb->arbiter_idx >= 0 ? arb->arbiter_role : "fallback");
     db_store_lesson(c->db_path, task_hash, "council", summary, 1);
+
+    /* Log complete debate for auditing */
+    log_debate_audit(c, task_hash, tree_buf);
 
     free(tree_buf);
     return council_apply_changes(c);
