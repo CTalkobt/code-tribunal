@@ -31,7 +31,8 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/core/Election.cpp \
             src/core/Council.cpp \
             src/ui/QueryClassifier.cpp \
-            src/ui/TUIManager.cpp
+            src/ui/TUIManager.cpp \
+            src/main_cpp.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # Test sources
@@ -51,8 +52,8 @@ $(TARGET): $(C_OBJS)
 	@echo "Built C version: $@"
 
 # C++ version (beta, for testing during migration)
-$(TARGET_CXX): check-cpp-compiler $(CXX_OBJS) $(C_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+$(TARGET_CXX): check-cpp-compiler $(CXX_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(CXX_OBJS) $(CXXLDFLAGS)
 	@echo "Built C++ version: $@"
 
 # C object files
@@ -155,6 +156,9 @@ src/ui/QueryClassifier.o: src/ui/QueryClassifier.cpp src/ui/QueryClassifier.h sr
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/ui/TUIManager.o: src/ui/TUIManager.cpp src/ui/TUIManager.h src/core/Council.h src/ui/QueryClassifier.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/main_cpp.o: src/main_cpp.cpp src/core/Council.h src/llm/OllamaClient.h src/ui/QueryClassifier.h src/ui/TUIManager.h src/util/Logging.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show build configuration
