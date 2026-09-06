@@ -29,7 +29,9 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/core/Analyst.cpp \
             src/core/Pool.cpp \
             src/core/Election.cpp \
-            src/core/Council.cpp
+            src/core/Council.cpp \
+            src/ui/QueryClassifier.cpp \
+            src/ui/TUIManager.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # Test sources
@@ -133,6 +135,12 @@ src/core/Election.o: src/core/Election.cpp src/core/Election.h src/core/Pool.h s
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/core/Council.o: src/core/Council.cpp src/core/Council.h src/core/Pool.h src/core/Election.h src/core/types.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/ui/QueryClassifier.o: src/ui/QueryClassifier.cpp src/ui/QueryClassifier.h src/core/types.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/ui/TUIManager.o: src/ui/TUIManager.cpp src/ui/TUIManager.h src/core/Council.h src/ui/QueryClassifier.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show build configuration
