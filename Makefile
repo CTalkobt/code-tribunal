@@ -27,7 +27,9 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/llm/LLMClient.cpp \
             src/llm/OllamaClient.cpp \
             src/core/Analyst.cpp \
-            src/core/Pool.cpp
+            src/core/Pool.cpp \
+            src/core/Election.cpp \
+            src/core/Council.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # Test sources
@@ -125,6 +127,12 @@ src/core/Analyst.o: src/core/Analyst.cpp src/core/Analyst.h src/core/types.h src
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/core/Pool.o: src/core/Pool.cpp src/core/Pool.h src/core/Analyst.h src/llm/LLMClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/core/Election.o: src/core/Election.cpp src/core/Election.h src/core/Pool.h src/core/Analyst.h src/core/types.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/core/Council.o: src/core/Council.cpp src/core/Council.h src/core/Pool.h src/core/Election.h src/core/types.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show build configuration

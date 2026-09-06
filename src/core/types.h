@@ -35,6 +35,7 @@ namespace config {
     /* Model and analyst configuration */
     constexpr int MAX_MODELS = 16;           /* max concurrent analysts */
     constexpr int MAX_DYNAMIC_ROLES = 4;     /* cap on spawned roles */
+    constexpr int BASE_ANALYST_COUNT = 4;    /* static analysts (never pruned) */
 
     /* File and code size limits */
     constexpr int MAX_FILES = 64;
@@ -71,6 +72,10 @@ namespace config {
     constexpr int SCORE_ADOPTED = 2;         /* arbiter used this code */
     constexpr int SCORE_CHALLENGE_WON = 1;   /* peer conceded */
     constexpr int SCORE_ROUND_ACTIVE = 0;    /* non-zero response, no bonus */
+
+    /* Pruning thresholds */
+    constexpr int MAX_IDLE_ROUNDS = 3;       /* prune after N inactive rounds */
+    constexpr int MIN_CONTRIBUTION_SCORE = 2; /* prune if total score < this */
 
     /* Database defaults */
     constexpr std::string_view DB_PATH = "lessons/council.db";
