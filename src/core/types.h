@@ -207,12 +207,12 @@ struct PoolEvent {
 };
 
 /**
- * Analyst - State and responses for one member of the council
+ * AnalystData - State and responses for one member of the council
  *
- * Phase 1: Basic structure. Phase 3 will become a C++ class with methods.
+ * Phase 1: Basic structure. Phase 3: Replaced by Analyst C++ class with methods.
  * Stores all responses across rounds, stats, and current state.
  */
-struct Analyst {
+struct AnalystData {
     /* Identity */
     std::string model;              /* LLM model name (e.g. "llama3.2") */
     AnalystRole role = AnalystRole::Security;
@@ -247,8 +247,11 @@ struct Council {
     /* Codebase being analyzed */
     std::vector<FileEntry> files;   /* one entry per source file */
 
+    /* Analysts (now Analyst class, but keeping vector for compatibility) */
+    /* std::vector<AnalystData> analysts; */  /* replaced by AnalystPool in Phase 3.2 */
+
     /* Analysts participating in debate */
-    std::vector<Analyst> analysts;  /* active and completed analysts */
+    std::vector<AnalystData> analysts;  /* active and completed analysts (replaced by AnalystPool in Phase 3) */
     int base_analyst_count = 4;     /* static analysts (never prune below) */
 
     /* Debate progress */
