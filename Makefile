@@ -23,7 +23,9 @@ C_OBJS    = $(C_SRCS:.c=.o)
 CXX_SRCS  = src/storage/Database.cpp \
             src/util/Logging.cpp \
             src/util/Concurrent.cpp \
-            src/util/Hash.cpp
+            src/util/Hash.cpp \
+            src/llm/LLMClient.cpp \
+            src/llm/OllamaClient.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # Test sources
@@ -109,6 +111,12 @@ src/util/Concurrent.o: src/util/Concurrent.cpp src/util/Concurrent.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/util/Hash.o: src/util/Hash.cpp src/util/Hash.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/llm/LLMClient.o: src/llm/LLMClient.cpp src/llm/LLMClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/llm/OllamaClient.o: src/llm/OllamaClient.cpp src/llm/OllamaClient.h src/llm/LLMClient.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show build configuration
