@@ -35,12 +35,13 @@ CXX_SRCS  = src/storage/Database.cpp \
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # Test sources
-TEST_SRCS = tests/test_database.cpp
+TEST_SRCS = tests/test_database.cpp tests/integration_test_council.cpp
 TEST_OBJS = $(TEST_SRCS:.cpp=.o)
 TEST_TARGET = test_database
+INTEGRATION_TEST = integration_test_council
 
 # Build targets
-.PHONY: all clean install check-deps check-cpp-compiler test tests
+.PHONY: all clean install check-deps check-cpp-compiler test tests integration-test
 
 all: check-deps $(TARGET)
 
@@ -106,6 +107,19 @@ $(TEST_TARGET): $(TEST_OBJS) src/storage/Database.o
 tests/test_database.o: tests/test_database.cpp src/core/types.h src/storage/Database.h
 	@mkdir -p tests
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+# Integration tests
+integration-test: check-cpp-compiler $(INTEGRATION_TEST)
+	@echo "Running integration tests..."
+	@./$(INTEGRATION_TEST)
+
+tests/integration_test_council.o: tests/integration_test_council.cpp src/core/Analyst.h src/core/Pool.h src/core/Election.h src/core/Council.h src/ui/QueryClassifier.h src/ui/TUIManager.h
+	@mkdir -p tests
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(INTEGRATION_TEST): tests/integration_test_council.o src/core/Analyst.o src/core/Pool.o src/core/Election.o src/core/Council.o src/ui/QueryClassifier.o src/ui/TUIManager.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Built integration test: $@"
 
 src/storage/Database.o: src/storage/Database.cpp src/storage/Database.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
