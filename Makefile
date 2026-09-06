@@ -20,7 +20,10 @@ C_SRCS    = src/main.c src/council.c src/ollama.c src/db.c
 C_OBJS    = $(C_SRCS:.c=.o)
 
 # C++ Sources (Phase 1+)
-CXX_SRCS  = src/storage/Database.cpp
+CXX_SRCS  = src/storage/Database.cpp \
+            src/util/Logging.cpp \
+            src/util/Concurrent.cpp \
+            src/util/Hash.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # Test sources
@@ -97,6 +100,15 @@ tests/test_database.o: tests/test_database.cpp src/core/types.h src/storage/Data
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/storage/Database.o: src/storage/Database.cpp src/storage/Database.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/util/Logging.o: src/util/Logging.cpp src/util/Logging.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/util/Concurrent.o: src/util/Concurrent.cpp src/util/Concurrent.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/util/Hash.o: src/util/Hash.cpp src/util/Hash.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show build configuration
