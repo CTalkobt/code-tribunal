@@ -19,12 +19,17 @@ TARGET_CXX  = council_cpp  # C++ version (beta)
 C_SRCS    = src/main.c src/council.c src/ollama.c src/db.c
 C_OBJS    = $(C_SRCS:.c=.o)
 
-# C++ Sources (placeholder for Phase 1+; empty for now)
-CXX_SRCS  =
+# C++ Sources (Phase 1+)
+CXX_SRCS  = src/storage/Database.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
+# Test sources
+TEST_SRCS = tests/test_database.cpp
+TEST_OBJS = $(TEST_SRCS:.cpp=.o)
+TEST_TARGET = test_database
+
 # Build targets
-.PHONY: all clean install check-deps check-cpp-compiler test
+.PHONY: all clean install check-deps check-cpp-compiler test tests
 
 all: check-deps $(TARGET)
 
@@ -79,6 +84,21 @@ clean:
 	rm -f $(C_OBJS) $(CXX_OBJS) $(TARGET) $(TARGET_CXX)
 	@echo "Cleaned build artifacts"
 
+# Unit tests
+tests: check-cpp-compiler $(TEST_TARGET)
+
+$(TEST_TARGET): $(TEST_OBJS) src/storage/Database.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running unit tests..."
+	@./$@
+
+tests/test_database.o: tests/test_database.cpp src/core/types.h src/storage/Database.h
+	@mkdir -p tests
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/storage/Database.o: src/storage/Database.cpp src/storage/Database.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 # Show build configuration
 show-config:
 	@echo "C Compiler: $(CC) $(CFLAGS)"
@@ -87,3 +107,4 @@ show-config:
 	@echo "C++ Target: $(TARGET_CXX)"
 	@echo "C Sources: $(C_SRCS)"
 	@echo "C++ Sources: $(CXX_SRCS)"
+	@echo "Test Target: $(TEST_TARGET)"
