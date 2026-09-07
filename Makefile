@@ -1,6 +1,5 @@
 # Code-Tribunal Build Configuration (C++17)
 # Complete rewrite in C++17 with council orchestration system
-# C source files removed - see git tag 'c-legacy/final' for historical reference
 
 # C++ Compiler
 CXX     = g++
@@ -8,7 +7,7 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread -Isrc -I. -Wno-deprecated-decla
 CXXLDFLAGS = -lcurl -lsqlite3 -lpthread -lssl -lcrypto
 
 # Primary target
-TARGET = council_cpp
+TARGET = council
 
 # C++ Sources
 CXX_SRCS  = src/storage/Database.cpp \
@@ -26,11 +25,9 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/main_cpp.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
-# Test sources
-TEST_SRCS = tests/test_database.cpp tests/integration_test_council.cpp
-TEST_OBJS = $(TEST_SRCS:.cpp=.o)
-TEST_TARGET = test_database
-INTEGRATION_TEST = integration_test_council
+# Test targets
+TEST_DATABASE = test_database
+TEST_INTEGRATION = test_integration
 
 # Build targets
 .PHONY: all clean install check-deps check-cpp-compiler test tests integration-test
@@ -57,38 +54,40 @@ check-cpp-compiler:
 
 # Installation
 install: check-cpp-compiler $(TARGET)
-	install -m 755 $(TARGET) /usr/local/bin/council_cpp
-	@echo "Installed C++ version to /usr/local/bin/council_cpp"
+	install -m 755 $(TARGET) /usr/local/bin/council
+	@echo "Installed to /usr/local/bin/council"
 
 # Cleanup
 clean:
-	rm -f $(CXX_OBJS) $(TARGET) $(TEST_OBJS) $(TEST_TARGET) $(INTEGRATION_TEST)
+	rm -f $(CXX_OBJS) $(TARGET) tests/*.o $(TEST_DATABASE) $(TEST_INTEGRATION)
 	@echo "Cleaned build artifacts"
 
-# Unit tests
-tests: check-cpp-compiler $(TEST_TARGET)
+# Run all tests
+test: tests integration-test
 
-$(TEST_TARGET): $(TEST_OBJS) src/storage/Database.o
+# Unit tests (database)
+tests: check-cpp-compiler $(TEST_DATABASE)
+	@./$(TEST_DATABASE)
+
+$(TEST_DATABASE): tests/test_database.o src/storage/Database.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
-	@echo "Running database tests..."
-	@./$@
+	@echo "Built database test"
 
 tests/test_database.o: tests/test_database.cpp src/core/types.h src/storage/Database.h
 	@mkdir -p tests
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Integration tests
-integration-test: check-cpp-compiler $(INTEGRATION_TEST)
-	@echo "Running integration tests..."
-	@./$(INTEGRATION_TEST)
+integration-test: check-cpp-compiler $(TEST_INTEGRATION)
+	@./$(TEST_INTEGRATION)
+
+$(TEST_INTEGRATION): tests/integration_test_council.o src/core/Analyst.o src/core/Pool.o src/core/Election.o src/core/Council.o src/ui/QueryClassifier.o src/ui/TUIManager.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Built integration test"
 
 tests/integration_test_council.o: tests/integration_test_council.cpp src/core/Analyst.h src/core/Pool.h src/core/Election.h src/core/Council.h src/ui/QueryClassifier.h src/ui/TUIManager.h
 	@mkdir -p tests
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-$(INTEGRATION_TEST): tests/integration_test_council.o src/core/Analyst.o src/core/Pool.o src/core/Election.o src/core/Council.o src/ui/QueryClassifier.o src/ui/TUIManager.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
-	@echo "Built integration test: $@"
 
 # Object file compilation rules
 src/storage/Database.o: src/storage/Database.cpp src/storage/Database.h
