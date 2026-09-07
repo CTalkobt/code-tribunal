@@ -7,3 +7,18 @@ council_output.c
 *.swp
 *.tmp
 .plan/
+
+# Build artifacts and coverage
+*.o
+*.gcno
+*.gcda
+*.gcov
+#usr#include*.gcov
+src#storage#*.gcov
+
+# Test logs and artifacts
+*.log
+test_*
+tests/*.o
+tests/*.gcno
+tests/*.gcda
