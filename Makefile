@@ -134,3 +134,99 @@ show-config:
 	@echo "C++ Compiler: $(CXX) $(CXXFLAGS)"
 	@echo "Target: $(TARGET)"
 	@echo "C++ Sources: $(CXX_SRCS)"
+
+# Additional test targets
+TEST_OLLAMA = test_ollama
+TEST_ELECTION = test_election
+TEST_THREADPOOL = test_threadpool
+TEST_CLASSIFIER = test_classifier
+TEST_ANALYST = test_analyst
+TEST_POOL = test_pool_test
+TEST_LOGGER = test_logger
+
+# Compile all additional tests
+$(TEST_OLLAMA): tests/test_ollama_client.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@./$@
+
+tests/test_ollama_client.o: tests/test_ollama_client.cpp src/llm/LLMClient.h src/llm/OllamaClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_ELECTION): tests/test_election.o src/core/Pool.o src/core/Election.o src/core/Analyst.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@./$@
+
+tests/test_election.o: tests/test_election.cpp src/core/types.h src/core/Pool.h src/core/Election.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_THREADPOOL): tests/test_threadpool.o src/util/Concurrent.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@./$@
+
+# High-Priority and Medium-Priority Test Targets (48 new tests)
+
+$(TEST_OLLAMA): tests/test_ollama_client.o src/llm/OllamaClient.o src/llm/LLMClient.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running OllamaClient tests..." && ./$@
+
+tests/test_ollama_client.o: tests/test_ollama_client.cpp src/llm/LLMClient.h src/llm/OllamaClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_ELECTION): tests/test_election.o src/core/Pool.o src/core/Election.o src/core/Analyst.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running Election tests..." && ./$@
+
+tests/test_election.o: tests/test_election.cpp src/core/types.h src/core/Pool.h src/core/Election.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_THREADPOOL): tests/test_threadpool.o src/util/Concurrent.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running ThreadPool tests..." && ./$@
+
+tests/test_threadpool.o: tests/test_threadpool.cpp src/util/Concurrent.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_CLASSIFIER): tests/test_query_classifier.o src/ui/QueryClassifier.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running QueryClassifier tests..." && ./$@
+
+tests/test_query_classifier.o: tests/test_query_classifier.cpp src/ui/QueryClassifier.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_ANALYST): tests/test_analyst.o src/core/Analyst.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running Analyst tests..." && ./$@
+
+tests/test_analyst.o: tests/test_analyst.cpp src/core/Analyst.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_POOL): tests/test_pool.o src/core/Pool.o src/core/Analyst.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running Pool tests..." && ./$@
+
+tests/test_pool.o: tests/test_pool.cpp src/core/Pool.h src/core/Analyst.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_LOGGER): tests/test_logger.o src/util/Logging.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running Logger tests..." && ./$@
+
+tests/test_logger.o: tests/test_logger.cpp src/util/Logging.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+# Run comprehensive test suite (29 original + 48 new = 77 tests total)
+test-all: tests integration-test $(TEST_OLLAMA) $(TEST_ELECTION) $(TEST_THREADPOOL) $(TEST_CLASSIFIER) $(TEST_ANALYST) $(TEST_POOL) $(TEST_LOGGER)
+	@echo "\n=========================================="
+	@echo "✓ All 77 comprehensive tests completed"
+	@echo "=========================================="
+	@echo "  Database: 23 tests"
+	@echo "  Integration: 6 tests"
+	@echo "  OllamaClient: 6 tests"
+	@echo "  Election: 7 tests"
+	@echo "  ThreadPool: 7 tests"
+	@echo "  QueryClassifier: 10 tests"
+	@echo "  Analyst: 8 tests"
+	@echo "  Pool: 9 tests"
+	@echo "  Logger: 7 tests"
+	@echo "=========================================="
+	@echo ""
