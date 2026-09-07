@@ -1,0 +1,432 @@
+#include "HttpServer.h"
+#include "../util/Logging.h"
+#include <sstream>
+#include <thread>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <cstring>
+#include <iostream>
+
+namespace tribunal {
+namespace http {
+
+using namespace util;
+
+HttpServer::HttpServer(
+    const core::Configuration& config,
+    std::unique_ptr<llm::LLMClient> llm_client
+) : config_(config), llm_client_(std::move(llm_client)) {
+    council_ = std::make_unique<core::CouncilOrchestrator>(config);
+}
+
+HttpServer::~HttpServer() {
+    stop();
+    if (server_socket_ >= 0) {
+        close(server_socket_);
+    }
+}
+
+int HttpServer::start() {
+    Logger& logger = Logger::instance();
+    logger.log(LogLevel::Info, "Starting HTTP server on port 8080...");
+
+    server_socket_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket_ < 0) {
+        logger.log(LogLevel::Error, "Failed to create socket");
+        return 1;
+    }
+
+    int reuse = 1;
+    setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(8080);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(server_socket_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        logger.log(LogLevel::Error, "Failed to bind to port 8080");
+        close(server_socket_);
+        return 1;
+    }
+
+    if (listen(server_socket_, 5) < 0) {
+        logger.log(LogLevel::Error, "Failed to listen on socket");
+        close(server_socket_);
+        return 1;
+    }
+
+    running_ = true;
+    logger.log(LogLevel::Info, "✓ HTTP server listening on http://localhost:8080");
+    logger.log(LogLevel::Info, "✓ Web dashboard running");
+    logger.log(LogLevel::Info, "Press Ctrl+C to exit");
+
+    /* Accept connections in this thread */
+    while (running_) {
+        struct sockaddr_in client_addr = {};
+        socklen_t addr_len = sizeof(client_addr);
+
+        int client = accept(server_socket_, (struct sockaddr*)&client_addr, &addr_len);
+        if (client >= 0 && running_) {
+            handle_request(client);
+            close(client);
+        }
+    }
+
+    close(server_socket_);
+    server_socket_ = -1;
+    return 0;
+}
+
+void HttpServer::stop() {
+    running_ = false;
+}
+
+void HttpServer::handle_request(int client) {
+    char buffer[4096] = {0};
+    ssize_t bytes = recv(client, buffer, sizeof(buffer) - 1, 0);
+
+    if (bytes <= 0) return;
+
+    std::string method, path, body;
+    if (!parse_request(std::string(buffer, bytes), method, path, body)) {
+        send_response(client, 400, "text/plain", "Bad Request");
+        return;
+    }
+
+    /* Route requests */
+    if (path == "/" || path == "/index.html") {
+        handle_root(client);
+    } else if (path == "/api/tasks" && method == "GET") {
+        handle_tasks(client);
+    } else if (path == "/api/query" && method == "POST") {
+        handle_query(client, body);
+    } else if (path.substr(0, 11) == "/api/query?" && method == "GET") {
+        /* Extract job_id from query string */
+        size_t job_pos = path.find("job_id=");
+        if (job_pos != std::string::npos) {
+            int job_id = std::stoi(path.substr(job_pos + 7));
+            handle_query_status(client, job_id);
+        } else {
+            send_response(client, 400, "application/json", "{\"error\":\"missing job_id\"}");
+        }
+    } else {
+        send_response(client, 404, "text/plain", "Not Found");
+    }
+}
+
+bool HttpServer::parse_request(
+    const std::string& buffer,
+    std::string& method,
+    std::string& path,
+    std::string& body
+) {
+    std::istringstream iss(buffer);
+    std::string line;
+
+    /* Parse request line */
+    if (!std::getline(iss, line)) return false;
+
+    std::istringstream req_line(line);
+    if (!(req_line >> method >> path)) return false;
+
+    /* Parse headers until empty line */
+    int content_length = 0;
+    while (std::getline(iss, line)) {
+        if (line.empty() || line == "\r") break;
+
+        if (line.substr(0, 16) == "Content-Length: ") {
+            content_length = std::stoi(line.substr(16));
+        }
+    }
+
+    /* Read body if POST */
+    if (method == "POST" && content_length > 0) {
+        body.resize(content_length);
+        iss.read(&body[0], content_length);
+    }
+
+    return true;
+}
+
+void HttpServer::send_response(
+    int client,
+    int status_code,
+    const std::string& content_type,
+    const std::string& body
+) {
+    std::ostringstream oss;
+    oss << "HTTP/1.1 " << status_code << " OK\r\n";
+    oss << "Content-Type: " << content_type << "\r\n";
+    oss << "Content-Length: " << body.length() << "\r\n";
+    oss << "Access-Control-Allow-Origin: *\r\n";
+    oss << "Connection: close\r\n";
+    oss << "\r\n";
+    oss << body;
+
+    std::string response = oss.str();
+    send(client, response.c_str(), response.length(), 0);
+}
+
+void HttpServer::handle_root(int client) {
+    send_response(client, 200, "text/html", get_dashboard_html());
+}
+
+void HttpServer::handle_tasks(int client) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::ostringstream json;
+    json << "{\"tasks\":[";
+
+    bool first = true;
+    for (const auto& [job_id, job] : jobs_) {
+        if (!first) json << ",";
+        json << "{"
+            << "\"id\":" << job_id
+            << ",\"query\":\"" << job.query << "\""
+            << ",\"status\":" << job.status
+            << ",\"output\":\"" << job.output << "\""
+            << ",\"duration\":" << job.duration_ms
+            << "}";
+        first = false;
+    }
+
+    json << "]}";
+    send_response(client, 200, "application/json", json.str());
+}
+
+void HttpServer::handle_query(int client, const std::string& body) {
+    /* Parse JSON request: {"query":"...", "rounds":N} */
+    std::string query;
+    int rounds = config_.rounds;
+
+    /* Simple JSON parsing */
+    size_t query_pos = body.find("\"query\":\"");
+    if (query_pos != std::string::npos) {
+        size_t start = query_pos + 9;
+        size_t end = body.find("\"", start);
+        query = body.substr(start, end - start);
+    }
+
+    if (query.empty()) {
+        send_response(client, 400, "application/json", "{\"error\":\"missing query\"}");
+        return;
+    }
+
+    ExecutionJob job = allocate_job(query);
+    job.rounds = rounds;
+
+    /* Return job ID immediately */
+    std::ostringstream response;
+    response << "{\"job_id\":" << job.job_id << "}";
+    send_response(client, 200, "application/json", response.str());
+
+    /* Execute query asynchronously */
+    execute_query_async(job);
+}
+
+void HttpServer::handle_query_status(int client, int job_id) {
+    ExecutionJob job = find_job(job_id);
+
+    std::ostringstream json;
+    if (job.job_id == -1) {
+        json << "{\"error\":\"job not found\"}";
+        send_response(client, 404, "application/json", json.str());
+        return;
+    }
+
+    json << "{"
+        << "\"id\":" << job.job_id
+        << ",\"status\":" << job.status
+        << ",\"query\":\"" << job.query << "\""
+        << ",\"output\":\"" << job.output << "\""
+        << ",\"duration\":" << job.duration_ms
+        << "}";
+
+    send_response(client, 200, "application/json", json.str());
+}
+
+ExecutionJob HttpServer::allocate_job(const std::string& query) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    ExecutionJob job;
+    job.job_id = next_job_id_++;
+    job.query = query;
+    job.status = 0;  /* running */
+    job.start_time = std::time(nullptr);
+
+    jobs_[job.job_id] = job;
+    return job;
+}
+
+ExecutionJob HttpServer::find_job(int job_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto it = jobs_.find(job_id);
+    if (it != jobs_.end()) {
+        return it->second;
+    }
+
+    ExecutionJob empty;
+    empty.job_id = -1;
+    return empty;
+}
+
+void HttpServer::update_job_output(int job_id, const std::string& output, int status) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto it = jobs_.find(job_id);
+    if (it != jobs_.end()) {
+        it->second.output = output;
+        it->second.status = status;
+        it->second.duration_ms = (std::time(nullptr) - it->second.start_time) * 1000;
+        it->second.success = (status == 1);
+    }
+}
+
+void HttpServer::execute_query_async(ExecutionJob job) {
+    std::thread([this, job]() {
+        try {
+            if (!council_->initialize_analysts(llm_client_->get_name() == "Ollama" ?
+                                             std::make_unique<llm::OllamaClient>() :
+                                             std::move(llm_client_),
+                                             config_.models)) {
+                update_job_output(job.job_id, "Failed to initialize analysts", 2);
+                return;
+            }
+
+            core::DebateResult result = council_->run_debate(job.query, job.rounds);
+
+            std::ostringstream output;
+            output << "Debate completed.\n";
+            output << "Winner: Analyst " << result.final_winner << "\n";
+            output << "Rounds: " << result.rounds_completed << "\n";
+            output << "Pruned: " << result.analysts_pruned << " analysts";
+
+            update_job_output(job.job_id, output.str(), 1);
+        } catch (const std::exception& e) {
+            update_job_output(job.job_id, std::string("Error: ") + e.what(), 2);
+        }
+    }).detach();
+}
+
+std::string HttpServer::get_dashboard_html() const {
+    return R"HTML(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRIBUNAL - Web Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #e0e0e0; }
+        header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 20px; border-bottom: 2px solid #444; }
+        header h1 { margin: 0 0 5px 0; }
+        header p { opacity: 0.8; }
+        .container { display: grid; grid-template-columns: 1fr 1fr 350px; gap: 10px; padding: 10px; height: calc(100vh - 80px); overflow: hidden; }
+        .panel { background: #1e1e1e; border-radius: 4px; border: 1px solid #333; padding: 15px; overflow-y: auto; }
+        .panel h2 { font-size: 14px; margin-bottom: 10px; color: #0066cc; text-transform: uppercase; }
+        textarea { width: 100%; height: 150px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; resize: vertical; }
+        button { background: #0066cc; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #0052a3; }
+        .job { border-left: 4px solid #444; padding: 12px; margin-bottom: 8px; background: #2a2a2a; border-radius: 3px; }
+        .job.running { border-left-color: #ffb74d; background: #2a2a2a; box-shadow: 0 0 8px rgba(255,152,0,0.3); }
+        .job.complete { border-left-color: #4caf50; }
+        .job.failed { border-left-color: #f44336; }
+        .job-name { font-weight: 500; margin-bottom: 5px; }
+        .job-status { font-size: 12px; opacity: 0.7; }
+        .output { background: #0a0a0a; border: 1px solid #333; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 11px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>⚖️ TRIBUNAL - Web Dashboard</h1>
+        <p>Query Interface & Debate Execution</p>
+    </header>
+    <div class="container">
+        <div class="panel">
+            <h2>Query Input</h2>
+            <textarea id="query" placeholder="Enter your query here...">Check for security issues in this code</textarea>
+            <button onclick="submitQuery()" style="width: 100%; margin-top: 10px;">Run Debate</button>
+        </div>
+        <div class="panel">
+            <h2>Active Jobs</h2>
+            <div id="jobs"></div>
+        </div>
+        <div class="panel">
+            <h2>Output</h2>
+            <div class="output" id="output">Results will appear here...</div>
+        </div>
+    </div>
+    <script>
+        let selectedJobId = null;
+
+        function submitQuery() {
+            const query = document.getElementById('query').value;
+            if (!query.trim()) return;
+
+            fetch('/api/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, rounds: 4 })
+            })
+            .then(r => r.json())
+            .then(data => {
+                selectedJobId = data.job_id;
+                pollJob(data.job_id);
+            });
+        }
+
+        function pollJob(jobId) {
+            const poll = setInterval(() => {
+                fetch(`/api/query?job_id=${jobId}`)
+                    .then(r => r.json())
+                    .then(job => {
+                        if (job.error) {
+                            clearInterval(poll);
+                            return;
+                        }
+                        document.getElementById('output').textContent = job.output;
+                        if (job.status !== 0) {
+                            clearInterval(poll);
+                            refreshJobs();
+                        }
+                    });
+            }, 500);
+        }
+
+        function refreshJobs() {
+            fetch('/api/tasks')
+                .then(r => r.json())
+                .then(data => {
+                    const jobsDiv = document.getElementById('jobs');
+                    jobsDiv.innerHTML = data.tasks.map(job => `
+                        <div class="job ${['running', 'complete', 'failed'][job.status]}" onclick="selectJob(${job.id})">
+                            <div class="job-name">Query ${job.id}</div>
+                            <div class="job-status">Status: ${['Running', 'Complete', 'Failed'][job.status]}</div>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function selectJob(jobId) {
+            selectedJobId = jobId;
+            fetch(`/api/query?job_id=${jobId}`)
+                .then(r => r.json())
+                .then(job => {
+                    document.getElementById('output').textContent = job.output;
+                });
+        }
+
+        setInterval(refreshJobs, 1000);
+        refreshJobs();
+    </script>
+</body>
+</html>
+)HTML";
+}
+
+}  /* namespace http */
+}  /* namespace tribunal */

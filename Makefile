@@ -22,7 +22,8 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/core/Election.cpp \
             src/core/Council.cpp \
             src/ui/QueryClassifier.cpp \
-            src/main_cpp.cpp
+            src/http/HttpServer.cpp \
+            src/main.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
 # C Sources (HTTP server) - TODO: restore tribunal_http.c headers
@@ -134,7 +135,10 @@ src/core/Council.o: src/core/Council.cpp src/core/Council.h src/core/Pool.h src/
 src/ui/QueryClassifier.o: src/ui/QueryClassifier.cpp src/ui/QueryClassifier.h src/core/types.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-src/main_cpp.o: src/main_cpp.cpp src/core/Council.h src/llm/OllamaClient.h src/ui/QueryClassifier.h src/util/Logging.h
+src/http/HttpServer.o: src/http/HttpServer.cpp src/http/HttpServer.h src/core/Council.h src/llm/LLMClient.h src/util/Logging.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/main.o: src/main.cpp src/core/Council.h src/llm/OllamaClient.h src/llm/MultiEndpointOllamaClient.h src/ui/QueryClassifier.h src/util/Logging.h src/http/HttpServer.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show configuration
