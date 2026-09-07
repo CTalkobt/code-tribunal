@@ -21,12 +21,14 @@
 #include "core/Council.h"
 #include "llm/LLMClient.h"
 #include "llm/OllamaClient.h"
+#include "llm/MultiEndpointOllamaClient.h"
 #include "ui/QueryClassifier.h"
 #include "util/Logging.h"
 
-extern "C" {
+/* extern "C" {
     int start_http_server();
 }
+Note: HTTP server disabled pending recovery of tribunal_data.h headers */
 
 using namespace tribunal;
 
@@ -34,17 +36,20 @@ void print_usage(const char* program_name) {
     std::cerr << "Usage: " << program_name << " [options] (<query> | --web)\n\n";
     std::cerr << "Options:\n";
     std::cerr << "  --web               Launch web dashboard (HTTP server on port 8080)\n";
-    std::cerr << "  --ollama <url>      Ollama server URL (default: http://localhost:11434)\n";
+    std::cerr << "  --ollama <url>      Ollama server URL (can be specified multiple times)\n";
+    std::cerr << "                      Default: http://localhost:11434\n";
+    std::cerr << "                      Multi-endpoint enables parallelism (2+ endpoints)\n";
     std::cerr << "  --rounds <n>        Number of debate rounds (default: 4)\n";
     std::cerr << "  --models <m1,m2...> Models to use (comma-separated)\n";
     std::cerr << "  --help              Show this help message\n\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << program_name << " --web\n";
     std::cerr << "  " << program_name << " \"Check for security issues in this code\"\n";
+    std::cerr << "  " << program_name << " --ollama http://gpu1:11434 --ollama http://gpu2:11434 \"query\"\n";
 }
 
 struct Options {
-    std::string ollama_url = "http://localhost:11434";
+    std::vector<std::string> ollama_urls;  /* Multi-endpoint support */
     int rounds = 4;
     std::vector<std::string> models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
     std::string query;
@@ -56,7 +61,7 @@ bool parse_arguments(int argc, char* argv[], Options& opts) {
         if (strcmp(argv[i], "--web") == 0) {
             opts.web_mode = true;
         } else if (strcmp(argv[i], "--ollama") == 0 && i + 1 < argc) {
-            opts.ollama_url = argv[++i];
+            opts.ollama_urls.push_back(argv[++i]);  /* Accumulate endpoints */
         } else if (strcmp(argv[i], "--rounds") == 0 && i + 1 < argc) {
             opts.rounds = std::stoi(argv[++i]);
         } else if (strcmp(argv[i], "--models") == 0 && i + 1 < argc) {
@@ -103,16 +108,31 @@ int main(int argc, char* argv[]) {
     logger.set_level(util::LogLevel::Info);
 
     if (opts.web_mode) {
-        std::cout << "✓ Launching web dashboard (HTTP server)\n";
-        std::cout << "✓ Web dashboard running on http://localhost:8080\n";
-        std::cout << "Press Ctrl+C to exit\n";
-        return start_http_server();
+        std::cerr << "Error: Web dashboard (HTTP server) not yet available\n";
+        std::cerr << "      Pending recovery of tribunal_http.c dependencies\n";
+        return 1;
     }
 
     logger.log(util::LogLevel::Info, "Starting Code-Tribunal debate system");
     logger.log(util::LogLevel::Info, "Query: " + opts.query);
-    logger.log(util::LogLevel::Info, "Ollama URL: " + opts.ollama_url);
     logger.log(util::LogLevel::Info, "Rounds: " + std::to_string(opts.rounds));
+
+    /* Auto-configuration logic: multiple endpoints → parallel, single → sequential */
+    if (opts.ollama_urls.empty()) {
+        opts.ollama_urls.push_back("http://localhost:11434");
+        logger.log(util::LogLevel::Info, "No Ollama endpoints specified; defaulting to localhost:11434");
+        logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint");
+    } else if (opts.ollama_urls.size() == 1) {
+        logger.log(util::LogLevel::Info, "Ollama endpoint: " + opts.ollama_urls[0]);
+        logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint for stability");
+    } else {
+        logger.log(util::LogLevel::Info, "Multi-endpoint Ollama configuration:");
+        for (size_t i = 0; i < opts.ollama_urls.size(); i++) {
+            logger.log(util::LogLevel::Info, "  Endpoint " + std::to_string(i + 1) + ": " + opts.ollama_urls[i]);
+        }
+        logger.log(util::LogLevel::Info,
+            "Parallelism: " + std::to_string(opts.ollama_urls.size()) + " (parallel batching enabled)");
+    }
 
     /* Ensure we have at least 4 models */
     if (opts.models.size() < 4) {
@@ -133,12 +153,12 @@ int main(int argc, char* argv[]) {
     auto classification = classifier.classify(opts.query);
     logger.log(util::LogLevel::Info, "Query classified: " + std::to_string(static_cast<int>(classification.primary_type)));
 
-    /* Initialize LLM client */
+    /* Initialize LLM client with multi-endpoint support */
     logger.log(util::LogLevel::Info, "Initializing LLM client...");
-    auto llm_client = std::make_unique<llm::OllamaClient>(opts.ollama_url);
+    auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(opts.ollama_urls);
 
     if (!llm_client->is_available()) {
-        logger.log(util::LogLevel::Error, "LLM service unavailable at " + opts.ollama_url);
+        logger.log(util::LogLevel::Error, "LLM service unavailable at all configured endpoints");
         return 1;
     }
 
