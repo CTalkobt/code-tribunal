@@ -24,16 +24,22 @@
 #include "ui/QueryClassifier.h"
 #include "util/Logging.h"
 
+extern "C" {
+    int start_http_server();
+}
+
 using namespace tribunal;
 
 void print_usage(const char* program_name) {
-    std::cerr << "Usage: " << program_name << " [options] <query>\n\n";
+    std::cerr << "Usage: " << program_name << " [options] (<query> | --web)\n\n";
     std::cerr << "Options:\n";
+    std::cerr << "  --web               Launch web dashboard (HTTP server on port 8080)\n";
     std::cerr << "  --ollama <url>      Ollama server URL (default: http://localhost:11434)\n";
     std::cerr << "  --rounds <n>        Number of debate rounds (default: 4)\n";
     std::cerr << "  --models <m1,m2...> Models to use (comma-separated)\n";
     std::cerr << "  --help              Show this help message\n\n";
-    std::cerr << "Example:\n";
+    std::cerr << "Examples:\n";
+    std::cerr << "  " << program_name << " --web\n";
     std::cerr << "  " << program_name << " \"Check for security issues in this code\"\n";
 }
 
@@ -42,11 +48,14 @@ struct Options {
     int rounds = 4;
     std::vector<std::string> models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
     std::string query;
+    bool web_mode = false;
 };
 
 bool parse_arguments(int argc, char* argv[], Options& opts) {
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--ollama") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--web") == 0) {
+            opts.web_mode = true;
+        } else if (strcmp(argv[i], "--ollama") == 0 && i + 1 < argc) {
             opts.ollama_url = argv[++i];
         } else if (strcmp(argv[i], "--rounds") == 0 && i + 1 < argc) {
             opts.rounds = std::stoi(argv[++i]);
@@ -73,8 +82,8 @@ bool parse_arguments(int argc, char* argv[], Options& opts) {
         }
     }
 
-    if (opts.query.empty()) {
-        std::cerr << "Error: Query required\n";
+    if (!opts.web_mode && opts.query.empty()) {
+        std::cerr << "Error: Query required (or use --web for dashboard mode)\n";
         return false;
     }
 
@@ -92,6 +101,13 @@ int main(int argc, char* argv[]) {
     /* Set up logging */
     util::Logger& logger = util::Logger::instance();
     logger.set_level(util::LogLevel::Info);
+
+    if (opts.web_mode) {
+        std::cout << "✓ Launching web dashboard (HTTP server)\n";
+        std::cout << "✓ Web dashboard running on http://localhost:8080\n";
+        std::cout << "Press Ctrl+C to exit\n";
+        return start_http_server();
+    }
 
     logger.log(util::LogLevel::Info, "Starting Code-Tribunal debate system");
     logger.log(util::LogLevel::Info, "Query: " + opts.query);

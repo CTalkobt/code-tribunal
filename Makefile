@@ -24,6 +24,12 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/main_cpp.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
+# C Sources (HTTP server)
+C_SRCS   = src/tribunal_http.c
+C_OBJS   = $(C_SRCS:.c=.o)
+
+ALL_OBJS = $(CXX_OBJS) $(C_OBJS)
+
 # Test targets
 TEST_DATABASE = test_database
 TEST_INTEGRATION = test_integration
@@ -34,7 +40,7 @@ TEST_INTEGRATION = test_integration
 all: check-cpp-compiler $(TARGET)
 
 # Main C++ binary
-$(TARGET): $(CXX_OBJS)
+$(TARGET): $(ALL_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
 	@echo "Built: $@"
 
@@ -58,7 +64,7 @@ install: check-cpp-compiler $(TARGET)
 
 # Cleanup
 clean:
-	rm -f $(CXX_OBJS) $(TARGET) tests/*.o $(TEST_DATABASE) $(TEST_INTEGRATION)
+	rm -f $(ALL_OBJS) $(TARGET) tests/*.o $(TEST_DATABASE) $(TEST_INTEGRATION)
 	@echo "Cleaned build artifacts"
 
 # Run all tests
