@@ -8,7 +8,6 @@
  * - Election rounds with voting
  * - Query classification
  * - Council orchestration
- * - TUI output formatting
  *
  * This test validates that all Phase 1-4 components integrate correctly.
  */
@@ -24,7 +23,6 @@
 #include "../src/core/Council.h"
 #include "../src/llm/LLMClient.h"
 #include "../src/ui/QueryClassifier.h"
-#include "../src/ui/TUIManager.h"
 
 using namespace tribunal;
 
@@ -175,20 +173,6 @@ int test_council_orchestrator() {
     return 0;
 }
 
-int test_tui_manager() {
-    std::cout << "[TEST] TUI Manager\n";
-
-    ui::TUIManager tui;
-    tui.print_welcome();
-    tui.print_status("Test status message");
-
-    core::Configuration config;
-    tui.print_configuration(config);
-
-    std::cout << "  ✓ TUI manager works\n";
-    return 0;
-}
-
 int main() {
     std::cout << "\n=== CODE-TRIBUNAL C++17 INTEGRATION TESTS ===\n\n";
 
@@ -199,11 +183,10 @@ int main() {
     failures += test_query_classifier();
     failures += test_voting_system();
     failures += test_council_orchestrator();
-    failures += test_tui_manager();
 
     std::cout << "\n";
     if (failures == 0) {
-        std::cout << "✓ All integration tests passed (6/6)\n\n";
+        std::cout << "✓ All integration tests passed (5/5)\n\n";
         return 0;
     } else {
         std::cout << "✗ " << failures << " test(s) failed\n\n";

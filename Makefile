@@ -21,7 +21,6 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/core/Election.cpp \
             src/core/Council.cpp \
             src/ui/QueryClassifier.cpp \
-            src/ui/TUIManager.cpp \
             src/main_cpp.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
@@ -81,11 +80,11 @@ tests/test_database.o: tests/test_database.cpp src/core/types.h src/storage/Data
 integration-test: check-cpp-compiler $(TEST_INTEGRATION)
 	@./$(TEST_INTEGRATION)
 
-$(TEST_INTEGRATION): tests/integration_test_council.o src/core/Analyst.o src/core/Pool.o src/core/Election.o src/core/Council.o src/ui/QueryClassifier.o src/ui/TUIManager.o
+$(TEST_INTEGRATION): tests/integration_test_council.o src/core/Analyst.o src/core/Pool.o src/core/Election.o src/core/Council.o src/ui/QueryClassifier.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
 	@echo "Built integration test"
 
-tests/integration_test_council.o: tests/integration_test_council.cpp src/core/Analyst.h src/core/Pool.h src/core/Election.h src/core/Council.h src/ui/QueryClassifier.h src/ui/TUIManager.h
+tests/integration_test_council.o: tests/integration_test_council.cpp src/core/Analyst.h src/core/Pool.h src/core/Election.h src/core/Council.h src/ui/QueryClassifier.h
 	@mkdir -p tests
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -123,10 +122,7 @@ src/core/Council.o: src/core/Council.cpp src/core/Council.h src/core/Pool.h src/
 src/ui/QueryClassifier.o: src/ui/QueryClassifier.cpp src/ui/QueryClassifier.h src/core/types.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-src/ui/TUIManager.o: src/ui/TUIManager.cpp src/ui/TUIManager.h src/core/Council.h src/ui/QueryClassifier.h
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-src/main_cpp.o: src/main_cpp.cpp src/core/Council.h src/llm/OllamaClient.h src/ui/QueryClassifier.h src/ui/TUIManager.h src/util/Logging.h
+src/main_cpp.o: src/main_cpp.cpp src/core/Council.h src/llm/OllamaClient.h src/ui/QueryClassifier.h src/util/Logging.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show configuration

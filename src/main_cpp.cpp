@@ -22,7 +22,6 @@
 #include "llm/LLMClient.h"
 #include "llm/OllamaClient.h"
 #include "ui/QueryClassifier.h"
-#include "ui/TUIManager.h"
 #include "util/Logging.h"
 
 using namespace tribunal;
@@ -90,10 +89,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    /* Initialize UI */
-    ui::TUIManager tui;
-    tui.print_welcome();
-
     /* Set up logging */
     util::Logger& logger = util::Logger::instance();
     logger.set_level(util::LogLevel::Info);
@@ -117,20 +112,17 @@ int main(int argc, char* argv[]) {
     config.api_type = "ollama";
     config.prune_enabled = 1;
 
-    tui.print_configuration(config);
-
     /* Classify query */
     ui::QueryClassifier classifier;
     auto classification = classifier.classify(opts.query);
-    tui.print_query_classification(classification, opts.query);
+    logger.log(util::LogLevel::Info, "Query classified: " + std::to_string(static_cast<int>(classification.primary_type)));
 
     /* Initialize LLM client */
     logger.log(util::LogLevel::Info, "Initializing LLM client...");
     auto llm_client = std::make_unique<llm::OllamaClient>(opts.ollama_url);
 
     if (!llm_client->is_available()) {
-        tui.print_error("LLM service unavailable at " + opts.ollama_url);
-        logger.log(util::LogLevel::Error, "LLM client failed to connect");
+        logger.log(util::LogLevel::Error, "LLM service unavailable at " + opts.ollama_url);
         return 1;
     }
 
@@ -141,8 +133,7 @@ int main(int argc, char* argv[]) {
     core::CouncilOrchestrator council(config);
 
     if (!council.initialize_analysts(std::move(llm_client), config.models)) {
-        tui.print_error("Failed to initialize analyst pool");
-        logger.log(util::LogLevel::Error, "Council initialization failed");
+        logger.log(util::LogLevel::Error, "Failed to initialize analyst pool");
         return 1;
     }
 
@@ -155,23 +146,16 @@ int main(int argc, char* argv[]) {
     try {
         core::DebateResult result = council.run_debate(opts.query, config.rounds);
 
-        /* Display results */
-        tui.print_final_result(result);
-
-        if (result.final_winner >= 0 && result.final_stats.size() > 0) {
-            tui.print_analyst_stats(result.final_stats, result.final_winner);
-        }
-
         auto election_history = council.get_election_history();
         logger.log(util::LogLevel::Info,
                    "Debate complete: " + std::to_string(election_history.size()) +
                    " election rounds");
+        logger.log(util::LogLevel::Info, "Winner: " + std::to_string(result.final_winner));
 
         return 0;
 
     } catch (const std::exception& e) {
-        tui.print_error(std::string("Debate error: ") + e.what());
-        logger.log(util::LogLevel::Error, std::string("Exception: ") + e.what());
+        logger.log(util::LogLevel::Error, std::string("Debate error: ") + e.what());
         return 1;
     }
 }
