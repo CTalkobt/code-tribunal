@@ -1,5 +1,5 @@
 /**
- * src/main_cpp.cpp - Code-Tribunal C++ Entry Point
+ * src/main.cpp - Code-Tribunal C++ Entry Point
  *
  * Phase 6: Main binary entry point
  *
@@ -24,11 +24,7 @@
 #include "llm/MultiEndpointOllamaClient.h"
 #include "ui/QueryClassifier.h"
 #include "util/Logging.h"
-
-/* extern "C" {
-    int start_http_server();
-}
-Note: HTTP server disabled pending recovery of tribunal_data.h headers */
+#include "http/HttpServer.h"
 
 using namespace tribunal;
 
@@ -107,10 +103,38 @@ int main(int argc, char* argv[]) {
     util::Logger& logger = util::Logger::instance();
     logger.set_level(util::LogLevel::Info);
 
+    /* Ensure we have at least 4 models */
+    if (opts.models.size() < 4) {
+        logger.log(util::LogLevel::Warning,
+                   "Less than 4 models specified; using defaults for base analysts");
+        opts.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    }
+
+    /* Create configuration */
+    core::Configuration config;
+    config.rounds = opts.rounds;
+    config.models = opts.models;
+    config.api_type = "ollama";
+    config.prune_enabled = 1;
+
+    /* Handle --web mode */
     if (opts.web_mode) {
-        std::cerr << "Error: Web dashboard (HTTP server) not yet available\n";
-        std::cerr << "      Pending recovery of tribunal_http.c dependencies\n";
-        return 1;
+        logger.log(util::LogLevel::Info, "Starting HTTP server for web dashboard...");
+
+        /* Auto-config endpoints for web mode */
+        if (opts.ollama_urls.empty()) {
+            opts.ollama_urls.push_back("http://localhost:11434");
+        }
+
+        auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(opts.ollama_urls);
+
+        if (!llm_client->is_available()) {
+            logger.log(util::LogLevel::Error, "LLM service unavailable at configured endpoints");
+            return 1;
+        }
+
+        http::HttpServer server(config, std::move(llm_client));
+        return server.start();
     }
 
     logger.log(util::LogLevel::Info, "Starting Code-Tribunal debate system");
@@ -133,20 +157,6 @@ int main(int argc, char* argv[]) {
         logger.log(util::LogLevel::Info,
             "Parallelism: " + std::to_string(opts.ollama_urls.size()) + " (parallel batching enabled)");
     }
-
-    /* Ensure we have at least 4 models */
-    if (opts.models.size() < 4) {
-        logger.log(util::LogLevel::Warning,
-                   "Less than 4 models specified; using defaults for base analysts");
-        opts.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
-    }
-
-    /* Create configuration */
-    core::Configuration config;
-    config.rounds = opts.rounds;
-    config.models = opts.models;
-    config.api_type = "ollama";
-    config.prune_enabled = 1;
 
     /* Classify query */
     ui::QueryClassifier classifier;
