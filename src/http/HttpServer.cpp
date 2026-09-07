@@ -1,5 +1,6 @@
 #include "HttpServer.h"
 #include "../util/Logging.h"
+#include "../llm/MultiEndpointOllamaClient.h"
 #include <sstream>
 #include <thread>
 #include <sys/socket.h>
@@ -288,10 +289,12 @@ void HttpServer::update_job_output(int job_id, const std::string& output, int st
 void HttpServer::execute_query_async(ExecutionJob job) {
     std::thread([this, job]() {
         try {
-            if (!council_->initialize_analysts(llm_client_->get_name() == "Ollama" ?
-                                             std::make_unique<llm::OllamaClient>() :
-                                             std::move(llm_client_),
-                                             config_.models)) {
+            /* Create new LLM client for this thread */
+            auto thread_client = std::make_unique<llm::MultiEndpointOllamaClient>(
+                std::vector<std::string>{"http://localhost:11434"}
+            );
+
+            if (!council_->initialize_analysts(std::move(thread_client), config_.models)) {
                 update_job_output(job.job_id, "Failed to initialize analysts", 2);
                 return;
             }
