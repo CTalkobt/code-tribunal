@@ -1,5 +1,5 @@
 /**
- * src/main_cpp.cpp - Code-Tribunal C++ Entry Point
+ * src/main.cpp - Code-Tribunal C++ Entry Point
  *
  * Phase 6: Main binary entry point
  *
@@ -19,14 +19,13 @@
 
 #include "core/types.h"
 #include "core/Council.h"
+#include "core/ConfigParser.h"
 #include "llm/LLMClient.h"
 #include "llm/OllamaClient.h"
+#include "llm/MultiEndpointOllamaClient.h"
 #include "ui/QueryClassifier.h"
 #include "util/Logging.h"
-
-extern "C" {
-    int start_http_server();
-}
+#include "http/HttpServer.h"
 
 using namespace tribunal;
 
@@ -34,29 +33,35 @@ void print_usage(const char* program_name) {
     std::cerr << "Usage: " << program_name << " [options] (<query> | --web)\n\n";
     std::cerr << "Options:\n";
     std::cerr << "  --web               Launch web dashboard (HTTP server on port 8080)\n";
-    std::cerr << "  --ollama <url>      Ollama server URL (default: http://localhost:11434)\n";
+    std::cerr << "  --ollama <url>      Ollama server URL (can be specified multiple times)\n";
+    std::cerr << "                      Default: http://localhost:11434\n";
+    std::cerr << "                      Multi-endpoint enables parallelism (2+ endpoints)\n";
     std::cerr << "  --rounds <n>        Number of debate rounds (default: 4)\n";
     std::cerr << "  --models <m1,m2...> Models to use (comma-separated)\n";
     std::cerr << "  --help              Show this help message\n\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << program_name << " --web\n";
     std::cerr << "  " << program_name << " \"Check for security issues in this code\"\n";
+    std::cerr << "  " << program_name << " --ollama http://gpu1:11434 --ollama http://gpu2:11434 \"query\"\n";
 }
 
 struct Options {
-    std::string ollama_url = "http://localhost:11434";
-    int rounds = 4;
-    std::vector<std::string> models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    std::string config_path = "config/council.conf";  /* Default config file */
+    std::vector<std::string> ollama_urls;  /* Multi-endpoint support */
+    int rounds = 0;  /* 0 means use config file default */
+    std::vector<std::string> models;  /* Empty means use config file default */
     std::string query;
     bool web_mode = false;
 };
 
 bool parse_arguments(int argc, char* argv[], Options& opts) {
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--web") == 0) {
+        if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            opts.config_path = argv[++i];
+        } else if (strcmp(argv[i], "--web") == 0) {
             opts.web_mode = true;
         } else if (strcmp(argv[i], "--ollama") == 0 && i + 1 < argc) {
-            opts.ollama_url = argv[++i];
+            opts.ollama_urls.push_back(argv[++i]);  /* Accumulate endpoints */
         } else if (strcmp(argv[i], "--rounds") == 0 && i + 1 < argc) {
             opts.rounds = std::stoi(argv[++i]);
         } else if (strcmp(argv[i], "--models") == 0 && i + 1 < argc) {
@@ -102,43 +107,82 @@ int main(int argc, char* argv[]) {
     util::Logger& logger = util::Logger::instance();
     logger.set_level(util::LogLevel::Info);
 
+    /* Load configuration from file (with sensible defaults) */
+    logger.log(util::LogLevel::Info, "Loading configuration from: " + opts.config_path);
+    core::Configuration config = core::ConfigParser::load_or_default(opts.config_path);
+    logger.log(util::LogLevel::Info, "Configuration loaded (rounds=" + std::to_string(config.rounds) +
+               ", models=" + std::to_string(config.models.size()) + ")");
+
+    /* Override config with CLI arguments if specified */
+    if (opts.rounds > 0) {
+        config.rounds = opts.rounds;
+    }
+    if (!opts.models.empty()) {
+        config.models = opts.models;
+    }
+    if (!opts.ollama_urls.empty()) {
+        config.ollama_urls = opts.ollama_urls;
+    }
+
+    /* Ensure we have at least 4 models */
+    if (config.models.size() < 4) {
+        logger.log(util::LogLevel::Warning,
+                   "Less than 4 models specified; using defaults for base analysts");
+        config.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    }
+
+    /* Handle --web mode */
     if (opts.web_mode) {
-        std::cout << "✓ Launching web dashboard (HTTP server)\n";
-        std::cout << "✓ Web dashboard running on http://localhost:8080\n";
-        std::cout << "Press Ctrl+C to exit\n";
-        return start_http_server();
+        logger.log(util::LogLevel::Info, "Starting HTTP server for web dashboard...");
+
+        /* Auto-config endpoints for web mode */
+        if (config.ollama_urls.empty()) {
+            config.ollama_urls.push_back("http://localhost:11434");
+        }
+
+        auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(config.ollama_urls);
+
+        if (!llm_client->is_available()) {
+            logger.log(util::LogLevel::Error, "LLM service unavailable at configured endpoints");
+            return 1;
+        }
+
+        http::HttpServer server(config, std::move(llm_client));
+        return server.start();
     }
 
     logger.log(util::LogLevel::Info, "Starting Code-Tribunal debate system");
     logger.log(util::LogLevel::Info, "Query: " + opts.query);
-    logger.log(util::LogLevel::Info, "Ollama URL: " + opts.ollama_url);
-    logger.log(util::LogLevel::Info, "Rounds: " + std::to_string(opts.rounds));
+    logger.log(util::LogLevel::Info, "Rounds: " + std::to_string(config.rounds));
 
-    /* Ensure we have at least 4 models */
-    if (opts.models.size() < 4) {
-        logger.log(util::LogLevel::Warning,
-                   "Less than 4 models specified; using defaults for base analysts");
-        opts.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    /* Auto-configuration logic: multiple endpoints → parallel, single → sequential */
+    if (config.ollama_urls.empty()) {
+        config.ollama_urls.push_back("http://localhost:11434");
+        logger.log(util::LogLevel::Info, "No Ollama endpoints specified; defaulting to localhost:11434");
+        logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint");
+    } else if (config.ollama_urls.size() == 1) {
+        logger.log(util::LogLevel::Info, "Ollama endpoint: " + config.ollama_urls[0]);
+        logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint for stability");
+    } else {
+        logger.log(util::LogLevel::Info, "Multi-endpoint Ollama configuration:");
+        for (size_t i = 0; i < config.ollama_urls.size(); i++) {
+            logger.log(util::LogLevel::Info, "  Endpoint " + std::to_string(i + 1) + ": " + config.ollama_urls[i]);
+        }
+        logger.log(util::LogLevel::Info,
+            "Parallelism: " + std::to_string(config.ollama_urls.size()) + " (parallel batching enabled)");
     }
-
-    /* Create configuration */
-    core::Configuration config;
-    config.rounds = opts.rounds;
-    config.models = opts.models;
-    config.api_type = "ollama";
-    config.prune_enabled = 1;
 
     /* Classify query */
     ui::QueryClassifier classifier;
     auto classification = classifier.classify(opts.query);
     logger.log(util::LogLevel::Info, "Query classified: " + std::to_string(static_cast<int>(classification.primary_type)));
 
-    /* Initialize LLM client */
+    /* Initialize LLM client with multi-endpoint support */
     logger.log(util::LogLevel::Info, "Initializing LLM client...");
-    auto llm_client = std::make_unique<llm::OllamaClient>(opts.ollama_url);
+    auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(config.ollama_urls);
 
     if (!llm_client->is_available()) {
-        logger.log(util::LogLevel::Error, "LLM service unavailable at " + opts.ollama_url);
+        logger.log(util::LogLevel::Error, "LLM service unavailable at all configured endpoints");
         return 1;
     }
 

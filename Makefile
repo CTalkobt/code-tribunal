@@ -16,19 +16,22 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/util/Hash.cpp \
             src/llm/LLMClient.cpp \
             src/llm/OllamaClient.cpp \
+            src/llm/MultiEndpointOllamaClient.cpp \
+            src/core/ConfigParser.cpp \
             src/core/Analyst.cpp \
             src/core/Pool.cpp \
             src/core/Election.cpp \
             src/core/Council.cpp \
             src/ui/QueryClassifier.cpp \
-            src/main_cpp.cpp
+            src/http/HttpServer.cpp \
+            src/main.cpp
 CXX_OBJS  = $(CXX_SRCS:.cpp=.o)
 
-# C Sources (HTTP server)
-C_SRCS   = src/tribunal_http.c
-C_OBJS   = $(C_SRCS:.c=.o)
+# C Sources (deprecated - using C++ HttpServer instead)
+# C_SRCS   = src/tribunal_http.c
+# C_OBJS   = $(C_SRCS:.c=.o)
 
-ALL_OBJS = $(CXX_OBJS) $(C_OBJS)
+ALL_OBJS = $(CXX_OBJS)
 
 # Test targets
 TEST_DATABASE = test_database
@@ -113,6 +116,9 @@ src/llm/LLMClient.o: src/llm/LLMClient.cpp src/llm/LLMClient.h
 src/llm/OllamaClient.o: src/llm/OllamaClient.cpp src/llm/OllamaClient.h src/llm/LLMClient.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+src/llm/MultiEndpointOllamaClient.o: src/llm/MultiEndpointOllamaClient.cpp src/llm/MultiEndpointOllamaClient.h src/llm/OllamaClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 src/core/Analyst.o: src/core/Analyst.cpp src/core/Analyst.h src/core/types.h src/llm/LLMClient.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -125,10 +131,13 @@ src/core/Election.o: src/core/Election.cpp src/core/Election.h src/core/Pool.h s
 src/core/Council.o: src/core/Council.cpp src/core/Council.h src/core/Pool.h src/core/Election.h src/core/types.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+src/core/ConfigParser.o: src/core/ConfigParser.cpp src/core/ConfigParser.h src/core/types.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 src/ui/QueryClassifier.o: src/ui/QueryClassifier.cpp src/ui/QueryClassifier.h src/core/types.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-src/main_cpp.o: src/main_cpp.cpp src/core/Council.h src/llm/OllamaClient.h src/ui/QueryClassifier.h src/util/Logging.h
+src/main.o: src/main.cpp src/core/Council.h src/core/ConfigParser.h src/llm/OllamaClient.h src/llm/MultiEndpointOllamaClient.h src/ui/QueryClassifier.h src/util/Logging.h src/http/HttpServer.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Show configuration

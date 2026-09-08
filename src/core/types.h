@@ -335,6 +335,10 @@ struct Configuration {
     std::string judge_model = "llama3.2";
     std::string fast_model = "";
 
+    /* Ollama configuration */
+    std::vector<std::string> ollama_urls;  /* Multi-endpoint support */
+    int ollama_timeout = 120;              /* Request timeout in seconds */
+
     /* Filtering */
     int max_file_bytes = config::MAX_FILE_BYTES;
     std::vector<std::string> exclude_dirs;
