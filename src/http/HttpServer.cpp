@@ -363,37 +363,61 @@ std::string HttpServer::get_dashboard_html() const {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRIBUNAL - Web Dashboard</title>
+    <title>TRIBUNAL - Debate Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #e0e0e0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #e0e0e0; }
         header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 20px; border-bottom: 2px solid #444; }
-        header h1 { margin: 0 0 5px 0; }
-        header p { opacity: 0.8; }
-        .container { display: grid; grid-template-columns: 1fr 1fr 350px; gap: 10px; padding: 10px; height: calc(100vh - 80px); overflow: hidden; }
+        header h1 { margin: 0 0 5px 0; font-size: 24px; }
+        header p { opacity: 0.8; font-size: 13px; }
+        .tabs { display: flex; gap: 0; background: #1a1a1a; border-bottom: 1px solid #333; }
+        .tab-btn { padding: 12px 20px; background: transparent; border: none; color: #999; cursor: pointer; font-size: 13px; font-weight: 500; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: #0066cc; border-bottom-color: #0066cc; }
+        .tab-btn:hover { color: #ddd; }
+        .tab-content { display: none; height: calc(100vh - 120px); }
+        .tab-content.active { display: grid; }
+        .grid-2 { grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+        .grid-3 { grid-template-columns: 1fr 1fr 400px; gap: 10px; padding: 10px; }
         .panel { background: #1e1e1e; border-radius: 4px; border: 1px solid #333; padding: 15px; overflow-y: auto; }
-        .panel h2 { font-size: 14px; margin-bottom: 10px; color: #0066cc; text-transform: uppercase; }
-        textarea { width: 100%; height: 150px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; resize: vertical; }
-        button { background: #0066cc; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .panel h2 { font-size: 13px; margin-bottom: 12px; color: #0066cc; text-transform: uppercase; letter-spacing: 1px; }
+        textarea { width: 100%; height: 120px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; resize: vertical; }
+        button { background: #0066cc; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
         button:hover { background: #0052a3; }
-        .job { border-left: 4px solid #444; padding: 12px; margin-bottom: 8px; background: #2a2a2a; border-radius: 3px; }
-        .job.running { border-left-color: #ffb74d; background: #2a2a2a; box-shadow: 0 0 8px rgba(255,152,0,0.3); }
+        button.secondary { background: #444; color: #fff; }
+        button.secondary:hover { background: #555; }
+        .job { border-left: 4px solid #444; padding: 10px; margin-bottom: 8px; background: #2a2a2a; border-radius: 3px; cursor: pointer; transition: 0.2s; }
+        .job:hover { background: #333; }
+        .job.running { border-left-color: #ffb74d; box-shadow: 0 0 8px rgba(255,152,0,0.3); }
         .job.complete { border-left-color: #4caf50; }
         .job.failed { border-left-color: #f44336; }
-        .job-name { font-weight: 500; margin-bottom: 5px; }
-        .job-status { font-size: 12px; opacity: 0.7; }
-        .output { background: #0a0a0a; border: 1px solid #333; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 11px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+        .job-name { font-weight: 500; margin-bottom: 3px; font-size: 12px; }
+        .job-status { font-size: 11px; opacity: 0.6; }
+        .output { background: #0a0a0a; border: 1px solid #333; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 11px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+        .stat { padding: 12px; background: #2a2a2a; border-radius: 3px; border-left: 3px solid #0066cc; margin-bottom: 8px; }
+        .stat-value { font-size: 20px; font-weight: bold; color: #0066cc; }
+        .stat-label { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+        .chart-container { position: relative; height: 250px; margin-bottom: 15px; }
+        .export-btn { width: 100%; margin-top: 10px; }
+        .button-group { display: flex; gap: 8px; }
+        .button-group button { flex: 1; }
     </style>
 </head>
 <body>
     <header>
-        <h1>⚖️ TRIBUNAL - Web Dashboard</h1>
-        <p>Query Interface & Debate Execution</p>
+        <h1>⚖️ TRIBUNAL - Debate Dashboard</h1>
+        <p>Multi-LLM Debate System with Real-time Metrics</p>
     </header>
-    <div class="container">
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('query')">Query Interface</button>
+        <button class="tab-btn" onclick="switchTab('metrics')">Metrics & Performance</button>
+    </div>
+
+    <!-- Query Interface Tab -->
+    <div id="query" class="tab-content active grid-3">
         <div class="panel">
-            <h2>Query Input</h2>
-            <textarea id="query" placeholder="Enter your query here...">Check for security issues in this code</textarea>
+            <h2>Debate Query</h2>
+            <textarea id="query-input" placeholder="Enter your query...">Check for security issues in this code</textarea>
             <button onclick="submitQuery()" style="width: 100%; margin-top: 10px;">Run Debate</button>
         </div>
         <div class="panel">
@@ -401,15 +425,70 @@ std::string HttpServer::get_dashboard_html() const {
             <div id="jobs"></div>
         </div>
         <div class="panel">
-            <h2>Output</h2>
+            <h2>Results</h2>
             <div class="output" id="output">Results will appear here...</div>
+            <div class="button-group" style="margin-top: 10px;">
+                <button class="secondary" onclick="exportJSON()">Export JSON</button>
+                <button class="secondary" onclick="exportText()">Export Text</button>
+            </div>
         </div>
     </div>
+
+    <!-- Metrics Tab -->
+    <div id="metrics" class="tab-content grid-2">
+        <div class="panel">
+            <h2>Overall Statistics</h2>
+            <div id="stats-container">
+                <div class="stat">
+                    <div class="stat-value" id="total-debates">0</div>
+                    <div class="stat-label">Total Debates</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="success-rate">0%</div>
+                    <div class="stat-label">Success Rate</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="avg-duration">0ms</div>
+                    <div class="stat-label">Average Duration</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="total-tokens">0</div>
+                    <div class="stat-label">Total Tokens</div>
+                </div>
+            </div>
+        </div>
+        <div class="panel">
+            <h2>Provider Performance</h2>
+            <div id="provider-stats"></div>
+        </div>
+        <div class="panel" style="grid-column: 1 / -1;">
+            <h2>Provider Latency Comparison</h2>
+            <div class="chart-container">
+                <canvas id="latencyChart"></canvas>
+            </div>
+        </div>
+    </div>
+
     <script>
         let selectedJobId = null;
+        let latencyChart = null;
+
+        function switchTab(tabName) {
+            /* Hide all tabs */
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+            /* Show selected tab */
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            if (tabName === 'metrics') {
+                refreshMetrics();
+            }
+        }
 
         function submitQuery() {
-            const query = document.getElementById('query').value;
+            const query = document.getElementById('query-input').value;
             if (!query.trim()) return;
 
             fetch('/api/query', {
@@ -450,7 +529,7 @@ std::string HttpServer::get_dashboard_html() const {
                     jobsDiv.innerHTML = data.tasks.map(job => `
                         <div class="job ${['running', 'complete', 'failed'][job.status]}" onclick="selectJob(${job.id})">
                             <div class="job-name">Query ${job.id}</div>
-                            <div class="job-status">Status: ${['Running', 'Complete', 'Failed'][job.status]}</div>
+                            <div class="job-status">Status: ${['Running', 'Complete', 'Failed'][job.status]} (${job.duration_ms}ms)</div>
                         </div>
                     `).join('');
                 });
@@ -463,6 +542,107 @@ std::string HttpServer::get_dashboard_html() const {
                 .then(job => {
                     document.getElementById('output').textContent = job.output;
                 });
+        }
+
+        function refreshMetrics() {
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('total-debates').textContent = data.debates_total;
+                    document.getElementById('success-rate').textContent = data.success_rate.toFixed(1) + '%';
+                    document.getElementById('avg-duration').textContent = data.duration_avg_ms.toFixed(0) + 'ms';
+                    document.getElementById('total-tokens').textContent = data.tokens_total.toLocaleString();
+
+                    /* Provider stats */
+                    const providerDiv = document.getElementById('provider-stats');
+                    if (data.providers && data.providers.length > 0) {
+                        providerDiv.innerHTML = data.providers.map(p => `
+                            <div class="stat">
+                                <div style="font-weight: 500; color: #0066cc; margin-bottom: 4px;">${p.provider}</div>
+                                <div style="font-size: 11px; opacity: 0.7;">
+                                    Queries: ${p.queries_total} | Success: ${p.queries_success} | Latency: ${p.latency_avg_ms.toFixed(0)}ms
+                                </div>
+                            </div>
+                        `).join('');
+
+                        /* Update latency chart */
+                        updateLatencyChart(data.providers);
+                    }
+                });
+        }
+
+        function updateLatencyChart(providers) {
+            const ctx = document.getElementById('latencyChart').getContext('2d');
+
+            if (latencyChart) {
+                latencyChart.destroy();
+            }
+
+            latencyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: providers.map(p => p.provider),
+                    datasets: [
+                        {
+                            label: 'Avg Latency (ms)',
+                            data: providers.map(p => p.latency_avg_ms),
+                            backgroundColor: '#0066cc',
+                            borderColor: '#0052a3',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Max Latency (ms)',
+                            data: providers.map(p => p.latency_max_ms),
+                            backgroundColor: '#ff6b6b',
+                            borderColor: '#ff5252',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#999', font: { size: 11 } }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            ticks: { color: '#999' },
+                            grid: { color: '#333' }
+                        },
+                        x: {
+                            ticks: { color: '#999' },
+                            grid: { color: '#333' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function exportJSON() {
+            const output = document.getElementById('output').textContent;
+            const data = { timestamp: new Date().toISOString(), result: output };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            downloadFile(blob, 'debate_result.json');
+        }
+
+        function exportText() {
+            const output = document.getElementById('output').textContent;
+            const blob = new Blob([output], { type: 'text/plain' });
+            downloadFile(blob, 'debate_result.txt');
+        }
+
+        function downloadFile(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         setInterval(refreshJobs, 1000);
