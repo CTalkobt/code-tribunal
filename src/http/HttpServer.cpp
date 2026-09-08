@@ -118,6 +118,30 @@ void HttpServer::handle_request(int client) {
         handle_metrics(client);
     } else if (path == "/api/stats" && method == "GET") {
         handle_stats(client);
+    } else if (path == "/api/history" && method == "GET") {
+        handle_history(client);
+    } else if (path.substr(0, 18) == "/api/history/search" && method == "GET") {
+        /* Extract search query from query string */
+        size_t q_pos = path.find("q=");
+        if (q_pos != std::string::npos) {
+            std::string search_query = path.substr(q_pos + 2);
+            handle_history_search(client, search_query);
+        } else {
+            send_response(client, 400, "application/json", "{\"error\":\"missing q parameter\"}");
+        }
+    } else if (path.substr(0, 15) == "/api/debate/" && method == "GET") {
+        /* Extract job_id from path */
+        size_t progress_pos = path.find("/progress");
+        if (progress_pos != std::string::npos) {
+            try {
+                int job_id = std::stoi(path.substr(11, progress_pos - 11));
+                handle_debate_progress(client, job_id);
+            } catch (...) {
+                send_response(client, 400, "application/json", "{\"error\":\"invalid job_id\"}");
+            }
+        } else {
+            send_response(client, 404, "text/plain", "Not Found");
+        }
     } else {
         send_response(client, 404, "text/plain", "Not Found");
     }
@@ -262,8 +286,11 @@ ExecutionJob HttpServer::allocate_job(const std::string& query) {
     job.query = query;
     job.status = 0;  /* running */
     job.start_time = std::time(nullptr);
+    job.provider = config_.api_type;
+    job.rounds = config_.rounds;
 
     jobs_[job.job_id] = job;
+    query_history_.push_back(job);  /* Track in history */
     return job;
 }
 
@@ -661,6 +688,82 @@ void HttpServer::handle_metrics(int client) {
 void HttpServer::handle_stats(int client) {
     std::string stats_json = util::Metrics::instance().get_json_summary();
     send_response(client, 200, "application/json", stats_json);
+}
+
+void HttpServer::handle_history(int client) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::ostringstream ss;
+    ss << "{\n  \"history\": [\n";
+
+    for (size_t i = 0; i < query_history_.size(); i++) {
+        const auto& job = query_history_[i];
+        if (i > 0) ss << ",\n";
+        ss << "    {\n";
+        ss << "      \"job_id\": " << job.job_id << ",\n";
+        ss << "      \"query\": \"" << job.query << "\",\n";
+        ss << "      \"provider\": \"" << job.provider << "\",\n";
+        ss << "      \"status\": " << job.status << ",\n";
+        ss << "      \"duration_ms\": " << job.duration_ms << ",\n";
+        ss << "      \"success\": " << (job.success ? "true" : "false") << "\n";
+        ss << "    }";
+    }
+
+    ss << "\n  ]\n}\n";
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_history_search(int client, const std::string& search_text) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::ostringstream ss;
+    ss << "{\n  \"results\": [\n";
+
+    bool first = true;
+    for (const auto& job : query_history_) {
+        /* Simple substring search */
+        if (job.query.find(search_text) != std::string::npos) {
+            if (!first) ss << ",\n";
+            ss << "    {\n";
+            ss << "      \"job_id\": " << job.job_id << ",\n";
+            ss << "      \"query\": \"" << job.query << "\",\n";
+            ss << "      \"provider\": \"" << job.provider << "\",\n";
+            ss << "      \"status\": " << job.status << ",\n";
+            ss << "      \"duration_ms\": " << job.duration_ms << "\n";
+            ss << "    }";
+            first = false;
+        }
+    }
+
+    ss << "\n  ]\n}\n";
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_debate_progress(int client, int job_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto job_iter = jobs_.find(job_id);
+    if (job_iter == jobs_.end()) {
+        send_response(client, 404, "application/json", "{\"error\":\"job not found\"}");
+        return;
+    }
+
+    const auto& job = job_iter->second;
+
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"job_id\": " << job.job_id << ",\n";
+    ss << "  \"status\": " << job.status << ",\n";
+    ss << "  \"current_round\": " << job.current_round << ",\n";
+    ss << "  \"total_rounds\": " << job.rounds << ",\n";
+    ss << "  \"analyst_count\": " << job.analyst_count << ",\n";
+    ss << "  \"query\": \"" << job.query << "\",\n";
+    ss << "  \"provider\": \"" << job.provider << "\",\n";
+    ss << "  \"duration_ms\": " << job.duration_ms << ",\n";
+    ss << "  \"progress_percent\": " << (job.rounds > 0 ? (100 * job.current_round / job.rounds) : 0) << "\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
 }
 
 }  /* namespace http */

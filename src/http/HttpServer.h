@@ -34,7 +34,7 @@ namespace tribunal {
 namespace http {
 
 /**
- * ExecutionJob - Tracks async query execution
+ * ExecutionJob - Tracks async query execution with progress
  */
 struct ExecutionJob {
     int job_id = -1;
@@ -42,7 +42,10 @@ struct ExecutionJob {
     std::string query;
     std::string output;
     std::string error;
+    std::string provider;
     int rounds = 4;
+    int current_round = 0;    /* For progress tracking */
+    int analyst_count = 0;    /* Active analysts */
     std::time_t start_time = 0;
     int duration_ms = 0;
     bool success = false;
@@ -99,6 +102,7 @@ private:
     std::mutex mutex_;
     std::map<int, ExecutionJob> jobs_;
     int next_job_id_ = 1;
+    std::vector<ExecutionJob> query_history_;  /* Session-based query history */
 
     /**
      * server_thread - Main HTTP server loop
@@ -215,6 +219,21 @@ private:
      * handle_stats - GET /api/stats - JSON metrics summary
      */
     void handle_stats(int client);
+
+    /**
+     * handle_history - GET /api/history - Query history with pagination
+     */
+    void handle_history(int client);
+
+    /**
+     * handle_history_search - GET /api/history/search - Search query history
+     */
+    void handle_history_search(int client, const std::string& query_text);
+
+    /**
+     * handle_debate_progress - GET /api/debate/{job_id}/progress - Real-time debate progress
+     */
+    void handle_debate_progress(int client, int job_id);
 };
 
 }  /* namespace http */
