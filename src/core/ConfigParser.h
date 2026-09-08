@@ -81,6 +81,18 @@ private:
      * @return Trimmed string
      */
     static std::string trim(const std::string& str);
+
+    /**
+     * apply_env_overrides - Apply environment variable overrides for API keys
+     *
+     * Environment variables take precedence over config file values:
+     * - CLAUDE_API_KEY → claude_api_key (if empty from config)
+     * - GOOGLE_AGY_API_KEY → google_agy_api_key (if empty from config)
+     * - GOOGLE_AGY_MODEL → google_agy_model (if empty from config)
+     *
+     * @param config Configuration struct to update with env vars
+     */
+    static void apply_env_overrides(Configuration& config);
 };
 
 }  /* namespace core */

@@ -17,6 +17,8 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/llm/LLMClient.cpp \
             src/llm/OllamaClient.cpp \
             src/llm/MultiEndpointOllamaClient.cpp \
+            src/llm/ClaudeClient.cpp \
+            src/llm/GoogleAntigravityClient.cpp \
             src/core/ConfigParser.cpp \
             src/core/Analyst.cpp \
             src/core/Pool.cpp \
@@ -117,6 +119,12 @@ src/llm/OllamaClient.o: src/llm/OllamaClient.cpp src/llm/OllamaClient.h src/llm/
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/llm/MultiEndpointOllamaClient.o: src/llm/MultiEndpointOllamaClient.cpp src/llm/MultiEndpointOllamaClient.h src/llm/OllamaClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/llm/ClaudeClient.o: src/llm/ClaudeClient.cpp src/llm/ClaudeClient.h src/llm/LLMClient.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/llm/GoogleAntigravityClient.o: src/llm/GoogleAntigravityClient.cpp src/llm/GoogleAntigravityClient.h src/llm/LLMClient.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/core/Analyst.o: src/core/Analyst.cpp src/core/Analyst.h src/core/types.h src/llm/LLMClient.h

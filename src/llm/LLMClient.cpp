@@ -1,5 +1,7 @@
 #include "LLMClient.h"
 #include "OllamaClient.h"
+#include "ClaudeClient.h"
+#include "GoogleAntigravityClient.h"
 #include <stdexcept>
 #include <algorithm>
 
@@ -19,21 +21,54 @@ std::unique_ptr<LLMClient> ClientFactory::create(
         return std::make_unique<OllamaClient>(url);
     }
     else if (lower_type == "claude") {
-        /* TODO: Phase 2.3 - Implement ClaudeClient */
-        throw std::invalid_argument("Claude client not yet implemented (Phase 2.3)");
+        /* config = API key (from env CLAUDE_API_KEY if empty) */
+        return std::make_unique<ClaudeClient>(config);
+    }
+    else if (lower_type == "google-agy" || lower_type == "google_agy") {
+        /* config = API key (from env GOOGLE_AGY_API_KEY if empty) */
+        return std::make_unique<GoogleAntigravityClient>(config);
     }
     else if (lower_type == "openai") {
-        /* TODO: Future phase - Implement OpenAI client */
         throw std::invalid_argument("OpenAI client not yet implemented");
     }
     else if (lower_type == "vllm") {
-        /* TODO: Future phase - Implement vLLM client */
         throw std::invalid_argument("vLLM client not yet implemented");
     }
     else {
         throw std::invalid_argument(
             "Unknown LLM provider: " + provider_type +
-            " (supported: ollama, claude, openai, vllm)"
+            " (supported: ollama, claude, google-agy)"
+        );
+    }
+}
+
+std::unique_ptr<LLMClient> ClientFactory::create_from_config(
+    const std::string& api_type,
+    const std::string& claude_api_key,
+    const std::string& claude_model,
+    const std::string& google_agy_api_key,
+    const std::string& google_agy_model,
+    const std::string& ollama_url,
+    int timeout_sec
+) {
+    std::string lower_type = api_type;
+    std::transform(lower_type.begin(), lower_type.end(), lower_type.begin(), ::tolower);
+
+    if (lower_type == "ollama") {
+        std::string url = ollama_url.empty() ? "http://localhost:11434" : ollama_url;
+        return std::make_unique<OllamaClient>(url, timeout_sec);
+    }
+    else if (lower_type == "claude") {
+        std::string model = claude_model.empty() ? "claude-3-5-sonnet-20241022" : claude_model;
+        return std::make_unique<ClaudeClient>(claude_api_key, model, timeout_sec);
+    }
+    else if (lower_type == "google-agy" || lower_type == "google_agy") {
+        return std::make_unique<GoogleAntigravityClient>(google_agy_api_key, google_agy_model, "", timeout_sec);
+    }
+    else {
+        throw std::invalid_argument(
+            "Unknown LLM provider: " + api_type +
+            " (supported: ollama, claude, google-agy)"
         );
     }
 }

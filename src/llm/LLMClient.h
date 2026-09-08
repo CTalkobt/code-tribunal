@@ -172,7 +172,7 @@ public:
 class ClientFactory {
 public:
     /**
-     * create - Create client for given provider
+     * create - Create client for given provider (legacy simple version)
      *
      * @param provider_type  "ollama", "claude", "openai", "vllm"
      * @param config         Configuration (URL, API key, etc.)
@@ -182,6 +182,32 @@ public:
     static std::unique_ptr<LLMClient> create(
         const std::string& provider_type,
         const std::string& config
+    );
+
+    /**
+     * create_from_config - Create client with detailed parameters
+     *
+     * Extended factory for creating clients with full configuration details.
+     * Supports claude, google-agy, and ollama providers.
+     *
+     * @param api_type           Provider type: "ollama", "claude", "google-agy"
+     * @param claude_api_key     Claude API key (optional)
+     * @param claude_model       Claude model name (optional, default: claude-3-5-sonnet-20241022)
+     * @param google_agy_api_key Google Antigravity API key (optional)
+     * @param google_agy_model   Google Antigravity model name (optional)
+     * @param ollama_url         Ollama server URL (optional, default: http://localhost:11434)
+     * @param timeout_sec        Request timeout in seconds (default: 120)
+     * @return  Unique pointer to new client
+     * @throws std::invalid_argument if api_type unknown or required config missing
+     */
+    static std::unique_ptr<LLMClient> create_from_config(
+        const std::string& api_type,
+        const std::string& claude_api_key = "",
+        const std::string& claude_model = "",
+        const std::string& google_agy_api_key = "",
+        const std::string& google_agy_model = "",
+        const std::string& ollama_url = "",
+        int timeout_sec = 120
     );
 };
 

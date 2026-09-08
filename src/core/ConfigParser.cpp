@@ -3,6 +3,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 namespace tribunal {
 namespace core {
@@ -12,6 +13,7 @@ Configuration ConfigParser::load(const std::string& config_path) {
 
     std::ifstream file(config_path);
     if (!file.is_open()) {
+        apply_env_overrides(config);
         return config;  /* Return defaults if file not found */
     }
 
@@ -22,6 +24,9 @@ Configuration ConfigParser::load(const std::string& config_path) {
             set_config_value(config, key, value);
         }
     }
+
+    /* Apply environment variable overrides for sensitive data */
+    apply_env_overrides(config);
 
     return config;
 }
@@ -91,10 +96,18 @@ void ConfigParser::set_config_value(Configuration& config, const std::string& ke
         config.ollama_timeout = std::stoi(value);
     } else if (key == "api_type") {
         config.api_type = value;
-    } else if (key == "api_url") {
-        config.api_url = value;
-    } else if (key == "api_key") {
-        config.api_key = value;
+    } else if (key == "ollama_api_url") {
+        config.ollama_api_url = value;
+    } else if (key == "claude_model") {
+        config.claude_model = value;
+    } else if (key == "claude_api_key") {
+        config.claude_api_key = value;
+    } else if (key == "google_agy_model") {
+        config.google_agy_model = value;
+    } else if (key == "google_agy_api_key") {
+        config.google_agy_api_key = value;
+    } else if (key == "google_agy_endpoint") {
+        config.google_agy_endpoint = value;
     }
     /* Unknown keys are silently ignored for forward compatibility */
 }
@@ -113,6 +126,24 @@ std::string ConfigParser::trim(const std::string& str) {
     }
 
     return str.substr(start, end - start);
+}
+
+void ConfigParser::apply_env_overrides(Configuration& config) {
+    /* API key environment variables override config file values */
+    const char* claude_key = std::getenv("CLAUDE_API_KEY");
+    if (claude_key && config.claude_api_key.empty()) {
+        config.claude_api_key = claude_key;
+    }
+
+    const char* google_agy_key = std::getenv("GOOGLE_AGY_API_KEY");
+    if (google_agy_key && config.google_agy_api_key.empty()) {
+        config.google_agy_api_key = google_agy_key;
+    }
+
+    const char* google_agy_model = std::getenv("GOOGLE_AGY_MODEL");
+    if (google_agy_model && config.google_agy_model.empty()) {
+        config.google_agy_model = google_agy_model;
+    }
 }
 
 }  /* namespace core */

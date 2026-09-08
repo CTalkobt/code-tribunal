@@ -344,10 +344,20 @@ struct Configuration {
     std::vector<std::string> exclude_dirs;
     std::vector<std::string> gitignore_patterns;
 
-    /* API backend */
-    std::string api_type = "ollama";       /* "ollama" or "claude" */
-    std::string api_url = "http://localhost:11434/api/chat";
-    std::string api_key = "";              /* from env or config */
+    /* API backend selection */
+    std::string api_type = "ollama";       /* "ollama", "claude", "google-agy" */
+
+    /* Ollama configuration */
+    std::string ollama_api_url = "http://localhost:11434/api/chat";
+
+    /* Claude API configuration */
+    std::string claude_api_key = "";       /* from env CLAUDE_API_KEY or config */
+    std::string claude_model = "claude-3-5-sonnet-20241022";
+
+    /* Google Antigravity API configuration */
+    std::string google_agy_api_key = "";   /* from env GOOGLE_AGY_API_KEY or config */
+    std::string google_agy_model = "";     /* from env GOOGLE_AGY_MODEL or config */
+    std::string google_agy_endpoint = ""; /* custom endpoint if needed */
 };
 
 /* ====================================================================
