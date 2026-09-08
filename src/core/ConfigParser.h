@@ -87,12 +87,24 @@ private:
      *
      * Environment variables take precedence over config file values:
      * - CLAUDE_API_KEY → claude_api_key (if empty from config)
+     * - ANTHROPIC_API_KEY → claude_api_key (fallback for Claude CLI)
+     * - Claude CLI credentials (~/.claude/.credentials.json) → claude_api_key (last resort)
      * - GOOGLE_AGY_API_KEY → google_agy_api_key (if empty from config)
      * - GOOGLE_AGY_MODEL → google_agy_model (if empty from config)
      *
      * @param config Configuration struct to update with env vars
      */
     static void apply_env_overrides(Configuration& config);
+
+    /**
+     * read_claude_cli_credentials - Read Claude API key from Claude CLI config
+     *
+     * Looks for Claude CLI credentials in ~/.claude/.credentials.json
+     * and extracts the accessToken to use as API key.
+     *
+     * @return API key string if found, empty string otherwise
+     */
+    static std::string read_claude_cli_credentials();
 };
 
 }  /* namespace core */

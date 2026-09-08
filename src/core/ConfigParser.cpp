@@ -128,11 +128,56 @@ std::string ConfigParser::trim(const std::string& str) {
     return str.substr(start, end - start);
 }
 
+std::string ConfigParser::read_claude_cli_credentials() {
+    /* Try to read Claude CLI credentials from ~/.claude/.credentials.json */
+    const char* home = std::getenv("HOME");
+    if (!home) {
+        return "";
+    }
+
+    std::string credentials_path = std::string(home) + "/.claude/.credentials.json";
+    std::ifstream file(credentials_path);
+    if (!file.is_open()) {
+        return "";
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        /* Look for "accessToken":"..." in JSON */
+        size_t token_pos = line.find("\"accessToken\":\"");
+        if (token_pos != std::string::npos) {
+            /* Extract the token value */
+            size_t start = token_pos + 15;  /* len("\"accessToken\":\"") */
+            size_t end = line.find("\"", start);
+            if (end != std::string::npos) {
+                return line.substr(start, end - start);
+            }
+        }
+    }
+
+    return "";
+}
+
 void ConfigParser::apply_env_overrides(Configuration& config) {
     /* API key environment variables override config file values */
-    const char* claude_key = std::getenv("CLAUDE_API_KEY");
-    if (claude_key && config.claude_api_key.empty()) {
-        config.claude_api_key = claude_key;
+    /* Priority: CLAUDE_API_KEY > ANTHROPIC_API_KEY > ~/.claude/.credentials.json */
+    if (config.claude_api_key.empty()) {
+        const char* claude_key = std::getenv("CLAUDE_API_KEY");
+        if (claude_key && *claude_key) {
+            config.claude_api_key = claude_key;
+        } else {
+            /* Try ANTHROPIC_API_KEY (Claude CLI standard) */
+            const char* anthropic_key = std::getenv("ANTHROPIC_API_KEY");
+            if (anthropic_key && *anthropic_key) {
+                config.claude_api_key = anthropic_key;
+            } else {
+                /* Try to read from Claude CLI config */
+                std::string cli_key = read_claude_cli_credentials();
+                if (!cli_key.empty()) {
+                    config.claude_api_key = cli_key;
+                }
+            }
+        }
     }
 
     const char* google_agy_key = std::getenv("GOOGLE_AGY_API_KEY");
