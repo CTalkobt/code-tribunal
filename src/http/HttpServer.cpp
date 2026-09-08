@@ -151,6 +151,31 @@ void HttpServer::handle_request(int client) {
         } else {
             send_response(client, 404, "text/plain", "Not Found");
         }
+    } else if (path.substr(0, 14) == "/api/metrics/" && method == "GET") {
+        /* Extract metric type and parameters */
+        if (path.find("/trends") != std::string::npos) {
+            size_t q_pos = path.find("?");
+            std::string params = (q_pos != std::string::npos) ? path.substr(q_pos) : "";
+            handle_metrics_trends(client, params);
+        } else if (path.find("/percentiles") != std::string::npos) {
+            size_t q_pos = path.find("?");
+            std::string params = (q_pos != std::string::npos) ? path.substr(q_pos) : "";
+            handle_metrics_percentiles(client, params);
+        } else if (path.find("/tokens") != std::string::npos) {
+            size_t q_pos = path.find("?");
+            std::string params = (q_pos != std::string::npos) ? path.substr(q_pos) : "";
+            handle_metrics_tokens(client, params);
+        } else if (path.find("/models") != std::string::npos) {
+            size_t q_pos = path.find("?");
+            std::string params = (q_pos != std::string::npos) ? path.substr(q_pos) : "";
+            handle_metrics_models(client, params);
+        } else if (path.find("/timeseries") != std::string::npos) {
+            size_t q_pos = path.find("?");
+            std::string params = (q_pos != std::string::npos) ? path.substr(q_pos) : "";
+            handle_metrics_timeseries(client, params);
+        } else {
+            send_response(client, 404, "text/plain", "Not Found");
+        }
     } else {
         send_response(client, 404, "text/plain", "Not Found");
     }
@@ -819,6 +844,192 @@ void HttpServer::handle_debate_visualization(int client, int job_id) {
     ss << "    \"analyst_id\": \"analysis_pending\",\n";
     ss << "    \"confidence\": 0\n";
     ss << "  }\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_metrics_trends(int client, const std::string& params) {
+    /* Parse hours parameter (default 24) */
+    int hours = 24;
+    size_t h_pos = params.find("hours=");
+    if (h_pos != std::string::npos) {
+        try {
+            hours = std::stoi(params.substr(h_pos + 6));
+        } catch (...) {}
+    }
+
+    auto& metrics = util::Metrics::instance();
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"hours\": " << hours << ",\n";
+    ss << "  \"providers\": {\n";
+
+    /* Collect provider data */
+    auto all_stats = metrics.get_all_stats();
+    for (size_t i = 0; i < all_stats.size(); ++i) {
+        if (i > 0) ss << ",\n";
+        const auto& stats = all_stats[i];
+        auto percentiles = metrics.get_percentiles(stats.provider, hours);
+        ss << "    \"" << stats.provider << "\": {\n";
+        ss << "      \"latencies\": [" << percentiles.p50 << ", " << percentiles.p95 << ", " << percentiles.p99 << "],\n";
+        ss << "      \"success_rate\": " << (stats.queries_total > 0 ? (100.0 * stats.queries_success / stats.queries_total) : 0.0) << "\n";
+        ss << "    }\n";
+    }
+    ss << "  }\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_metrics_percentiles(int client, const std::string& params) {
+    /* Parse provider and hours parameters */
+    std::string provider = "ollama";
+    int hours = 24;
+
+    size_t p_pos = params.find("provider=");
+    if (p_pos != std::string::npos) {
+        size_t end = params.find("&", p_pos);
+        provider = params.substr(p_pos + 9, (end == std::string::npos) ? std::string::npos : (end - p_pos - 9));
+    }
+
+    size_t h_pos = params.find("hours=");
+    if (h_pos != std::string::npos) {
+        try {
+            hours = std::stoi(params.substr(h_pos + 6));
+        } catch (...) {}
+    }
+
+    auto& metrics = util::Metrics::instance();
+    auto percentiles = metrics.get_percentiles(provider, hours);
+
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"provider\": \"" << provider << "\",\n";
+    ss << "  \"hours\": " << hours << ",\n";
+    ss << "  \"p50\": " << percentiles.p50 << ",\n";
+    ss << "  \"p95\": " << percentiles.p95 << ",\n";
+    ss << "  \"p99\": " << percentiles.p99 << "\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_metrics_tokens(int client, const std::string& params) {
+    /* Parse hours parameter */
+    int hours = 0;
+    size_t h_pos = params.find("hours=");
+    if (h_pos != std::string::npos) {
+        try {
+            hours = std::stoi(params.substr(h_pos + 6));
+        } catch (...) {}
+    }
+
+    auto& metrics = util::Metrics::instance();
+    auto histogram = metrics.get_token_distribution(hours);
+
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"hours\": " << hours << ",\n";
+    ss << "  \"bins\": [";
+    for (size_t i = 0; i < histogram.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << histogram[i];
+    }
+    ss << "],\n";
+    ss << "  \"labels\": [";
+    for (size_t i = 0; i < histogram.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << "\"" << (i*500) << "-" << ((i+1)*500) << "\"";
+    }
+    ss << "]\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_metrics_models(int client, const std::string& params) {
+    /* Parse hours parameter */
+    int hours = 24;
+    size_t h_pos = params.find("hours=");
+    if (h_pos != std::string::npos) {
+        try {
+            hours = std::stoi(params.substr(h_pos + 6));
+        } catch (...) {}
+    }
+
+    auto& metrics = util::Metrics::instance();
+    auto all_stats = metrics.get_all_stats();
+
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"hours\": " << hours << ",\n";
+    ss << "  \"models\": [\n";
+    for (size_t i = 0; i < all_stats.size(); ++i) {
+        if (i > 0) ss << ",\n";
+        const auto& stats = all_stats[i];
+        ss << "    {\n";
+        ss << "      \"name\": \"" << stats.provider << "\",\n";
+        ss << "      \"provider\": \"" << stats.provider << "\",\n";
+        ss << "      \"avg_latency\": " << stats.latency_ms_avg << ",\n";
+        ss << "      \"success_rate\": " << (stats.queries_total > 0 ? (100.0 * stats.queries_success / stats.queries_total) : 0.0) << ",\n";
+        ss << "      \"count\": " << stats.queries_total << "\n";
+        ss << "    }\n";
+    }
+    ss << "  ]\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_metrics_timeseries(int client, const std::string& params) {
+    /* Parse hours and provider parameters */
+    int hours = 24;
+    std::string provider = "ollama";
+
+    size_t h_pos = params.find("hours=");
+    if (h_pos != std::string::npos) {
+        try {
+            hours = std::stoi(params.substr(h_pos + 6));
+        } catch (...) {}
+    }
+
+    size_t p_pos = params.find("provider=");
+    if (p_pos != std::string::npos) {
+        size_t end = params.find("&", p_pos);
+        provider = params.substr(p_pos + 9, (end == std::string::npos) ? std::string::npos : (end - p_pos - 9));
+    }
+
+    auto& metrics = util::Metrics::instance();
+    auto timeseries = metrics.get_timeseries(provider, hours);
+    auto all_stats = metrics.get_all_stats();
+
+    /* Calculate throughput and error rate */
+    int total_queries = 0;
+    int failed_queries = 0;
+    for (const auto& stats : all_stats) {
+        total_queries += stats.queries_total;
+        failed_queries += stats.queries_failed;
+    }
+
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"provider\": \"" << provider << "\",\n";
+    ss << "  \"hours\": " << hours << ",\n";
+    ss << "  \"timestamps\": [";
+    for (size_t i = 0; i < timeseries.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << timeseries[i].timestamp_ms;
+    }
+    ss << "],\n";
+    ss << "  \"latencies\": [";
+    for (size_t i = 0; i < timeseries.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << timeseries[i].value;
+    }
+    ss << "],\n";
+    ss << "  \"throughput_qpm\": " << (total_queries / std::max(1, hours/60)) << ",\n";
+    ss << "  \"error_rate\": " << (total_queries > 0 ? (100.0 * failed_queries / total_queries) : 0.0) << "\n";
     ss << "}\n";
 
     send_response(client, 200, "application/json", ss.str());

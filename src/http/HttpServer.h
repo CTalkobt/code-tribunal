@@ -253,6 +253,31 @@ private:
      * handle_debate_visualization - GET /api/debate/{job_id}/visualization - Detailed visualization data
      */
     void handle_debate_visualization(int client, int job_id);
+
+    /**
+     * handle_metrics_trends - GET /api/metrics/trends - Latency trends over time
+     */
+    void handle_metrics_trends(int client, const std::string& params);
+
+    /**
+     * handle_metrics_percentiles - GET /api/metrics/percentiles - Latency percentiles
+     */
+    void handle_metrics_percentiles(int client, const std::string& params);
+
+    /**
+     * handle_metrics_tokens - GET /api/metrics/tokens - Token usage distribution
+     */
+    void handle_metrics_tokens(int client, const std::string& params);
+
+    /**
+     * handle_metrics_models - GET /api/metrics/models - Model performance comparison
+     */
+    void handle_metrics_models(int client, const std::string& params);
+
+    /**
+     * handle_metrics_timeseries - GET /api/metrics/timeseries - Time-series metrics
+     */
+    void handle_metrics_timeseries(int client, const std::string& params);
 };
 
 }  /* namespace http */

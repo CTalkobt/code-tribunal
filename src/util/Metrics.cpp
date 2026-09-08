@@ -169,10 +169,108 @@ std::string Metrics::get_json_summary() {
     return ss.str();
 }
 
+PercentileStats Metrics::get_percentiles(const std::string& provider, int hours) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    PercentileStats stats;
+
+    /* Collect latencies for provider, filtered by time if needed */
+    std::vector<double> latencies;
+    long long cutoff_ms = 0;
+    if (hours > 0) {
+        auto now = std::chrono::high_resolution_clock::now();
+        cutoff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()).count() - (hours * 3600 * 1000);
+    }
+
+    for (const auto& d : debates_) {
+        if (d.llm_provider == provider) {
+            latencies.push_back(d.duration_ms);
+        }
+    }
+
+    if (latencies.empty()) return stats;
+
+    /* Sort for percentile calculation */
+    std::sort(latencies.begin(), latencies.end());
+
+    size_t size = latencies.size();
+    stats.p50 = latencies[size / 2];
+    stats.p95 = latencies[(95 * size) / 100];
+    stats.p99 = latencies[(99 * size) / 100];
+
+    return stats;
+}
+
+std::vector<TimeSeriesPoint> Metrics::get_timeseries(const std::string& provider, int hours) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::vector<TimeSeriesPoint> result;
+    long long cutoff_ms = 0;
+
+    if (hours > 0) {
+        auto now = std::chrono::high_resolution_clock::now();
+        cutoff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()).count() - (hours * 3600 * 1000);
+    }
+
+    /* Aggregate latencies by time window (1-minute buckets) */
+    std::map<long long, std::vector<double>> buckets;
+    long long bucket_size = 60 * 1000;  /* 1 minute */
+
+    for (const auto& d : debates_) {
+        if (d.llm_provider == provider) {
+            if (hours == 0 || d.duration_ms >= cutoff_ms) {
+                long long bucket_key = (d.duration_ms / bucket_size) * bucket_size;
+                buckets[bucket_key].push_back(d.duration_ms);
+            }
+        }
+    }
+
+    /* Average each bucket */
+    for (const auto& bucket : buckets) {
+        TimeSeriesPoint point;
+        point.timestamp_ms = bucket.first;
+        double sum = 0.0;
+        for (double val : bucket.second) {
+            sum += val;
+        }
+        point.value = sum / bucket.second.size();
+        result.push_back(point);
+    }
+
+    return result;
+}
+
+std::vector<int> Metrics::get_token_distribution(int hours) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    /* Histogram with 500-token bins */
+    std::vector<int> histogram(100, 0);  /* Up to 50k tokens */
+    long long cutoff_ms = 0;
+
+    if (hours > 0) {
+        auto now = std::chrono::high_resolution_clock::now();
+        cutoff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()).count() - (hours * 3600 * 1000);
+    }
+
+    for (const auto& d : debates_) {
+        int bin = d.total_tokens_used / 500;
+        if (bin < 100) {
+            histogram[bin]++;
+        }
+    }
+
+    return histogram;
+}
+
 void Metrics::reset() {
     std::lock_guard<std::mutex> lock(mutex_);
     debates_.clear();
     provider_latencies_.clear();
+    timeseries_data_.clear();
+    token_usage_.clear();
 }
 
 }  /* namespace util */
