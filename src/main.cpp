@@ -134,42 +134,60 @@ int main(int argc, char* argv[]) {
     /* Handle --web mode */
     if (opts.web_mode) {
         logger.log(util::LogLevel::Info, "Starting HTTP server for web dashboard...");
+        logger.log(util::LogLevel::Info, "LLM Provider: " + config.api_type);
 
-        /* Auto-config endpoints for web mode */
-        if (config.ollama_urls.empty()) {
+        /* Auto-config Ollama endpoints for web mode if needed */
+        if (config.api_type == "ollama" && config.ollama_urls.empty()) {
             config.ollama_urls.push_back("http://localhost:11434");
         }
 
-        auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(config.ollama_urls);
+        try {
+            auto llm_client = llm::ClientFactory::create_from_config(
+                config.api_type,
+                config.claude_api_key,
+                config.claude_model,
+                config.google_agy_api_key,
+                config.google_agy_model,
+                config.ollama_urls.empty() ? "" : config.ollama_urls[0]
+            );
 
-        if (!llm_client->is_available()) {
-            logger.log(util::LogLevel::Error, "LLM service unavailable at configured endpoints");
+            if (!llm_client->is_available()) {
+                logger.log(util::LogLevel::Error, "LLM service unavailable: " + llm_client->get_last_error());
+                return 1;
+            }
+
+            logger.log(util::LogLevel::Info, "LLM client ready: " + llm_client->get_name());
+            http::HttpServer server(config, std::move(llm_client));
+            return server.start();
+
+        } catch (const std::exception& e) {
+            logger.log(util::LogLevel::Error, std::string("Failed to initialize LLM client: ") + e.what());
             return 1;
         }
-
-        http::HttpServer server(config, std::move(llm_client));
-        return server.start();
     }
 
     logger.log(util::LogLevel::Info, "Starting Code-Tribunal debate system");
     logger.log(util::LogLevel::Info, "Query: " + opts.query);
     logger.log(util::LogLevel::Info, "Rounds: " + std::to_string(config.rounds));
+    logger.log(util::LogLevel::Info, "LLM Provider: " + config.api_type);
 
-    /* Auto-configuration logic: multiple endpoints → parallel, single → sequential */
-    if (config.ollama_urls.empty()) {
-        config.ollama_urls.push_back("http://localhost:11434");
-        logger.log(util::LogLevel::Info, "No Ollama endpoints specified; defaulting to localhost:11434");
-        logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint");
-    } else if (config.ollama_urls.size() == 1) {
-        logger.log(util::LogLevel::Info, "Ollama endpoint: " + config.ollama_urls[0]);
-        logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint for stability");
-    } else {
-        logger.log(util::LogLevel::Info, "Multi-endpoint Ollama configuration:");
-        for (size_t i = 0; i < config.ollama_urls.size(); i++) {
-            logger.log(util::LogLevel::Info, "  Endpoint " + std::to_string(i + 1) + ": " + config.ollama_urls[i]);
+    /* Auto-configuration for Ollama: multiple endpoints → parallel, single → sequential */
+    if (config.api_type == "ollama") {
+        if (config.ollama_urls.empty()) {
+            config.ollama_urls.push_back("http://localhost:11434");
+            logger.log(util::LogLevel::Info, "No Ollama endpoints specified; defaulting to localhost:11434");
+            logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint");
+        } else if (config.ollama_urls.size() == 1) {
+            logger.log(util::LogLevel::Info, "Ollama endpoint: " + config.ollama_urls[0]);
+            logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint for stability");
+        } else {
+            logger.log(util::LogLevel::Info, "Multi-endpoint Ollama configuration:");
+            for (size_t i = 0; i < config.ollama_urls.size(); i++) {
+                logger.log(util::LogLevel::Info, "  Endpoint " + std::to_string(i + 1) + ": " + config.ollama_urls[i]);
+            }
+            logger.log(util::LogLevel::Info,
+                "Parallelism: " + std::to_string(config.ollama_urls.size()) + " (parallel batching enabled)");
         }
-        logger.log(util::LogLevel::Info,
-            "Parallelism: " + std::to_string(config.ollama_urls.size()) + " (parallel batching enabled)");
     }
 
     /* Classify query */
@@ -177,12 +195,26 @@ int main(int argc, char* argv[]) {
     auto classification = classifier.classify(opts.query);
     logger.log(util::LogLevel::Info, "Query classified: " + std::to_string(static_cast<int>(classification.primary_type)));
 
-    /* Initialize LLM client with multi-endpoint support */
+    /* Initialize LLM client using factory for selected provider */
     logger.log(util::LogLevel::Info, "Initializing LLM client...");
-    auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(config.ollama_urls);
+    std::unique_ptr<llm::LLMClient> llm_client;
+    try {
+        llm_client = llm::ClientFactory::create_from_config(
+            config.api_type,
+            config.claude_api_key,
+            config.claude_model,
+            config.google_agy_api_key,
+            config.google_agy_model,
+            config.ollama_urls.empty() ? "" : config.ollama_urls[0],
+            120  /* timeout in seconds */
+        );
+    } catch (const std::exception& e) {
+        logger.log(util::LogLevel::Error, std::string("Failed to initialize LLM client: ") + e.what());
+        return 1;
+    }
 
     if (!llm_client->is_available()) {
-        logger.log(util::LogLevel::Error, "LLM service unavailable at all configured endpoints");
+        logger.log(util::LogLevel::Error, "LLM service unavailable: " + llm_client->get_last_error());
         return 1;
     }
 
