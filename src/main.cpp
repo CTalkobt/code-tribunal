@@ -19,6 +19,7 @@
 
 #include "core/types.h"
 #include "core/Council.h"
+#include "core/ConfigParser.h"
 #include "llm/LLMClient.h"
 #include "llm/OllamaClient.h"
 #include "llm/MultiEndpointOllamaClient.h"
@@ -45,16 +46,19 @@ void print_usage(const char* program_name) {
 }
 
 struct Options {
+    std::string config_path = "config/council.conf";  /* Default config file */
     std::vector<std::string> ollama_urls;  /* Multi-endpoint support */
-    int rounds = 4;
-    std::vector<std::string> models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    int rounds = 0;  /* 0 means use config file default */
+    std::vector<std::string> models;  /* Empty means use config file default */
     std::string query;
     bool web_mode = false;
 };
 
 bool parse_arguments(int argc, char* argv[], Options& opts) {
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--web") == 0) {
+        if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            opts.config_path = argv[++i];
+        } else if (strcmp(argv[i], "--web") == 0) {
             opts.web_mode = true;
         } else if (strcmp(argv[i], "--ollama") == 0 && i + 1 < argc) {
             opts.ollama_urls.push_back(argv[++i]);  /* Accumulate endpoints */
@@ -103,30 +107,40 @@ int main(int argc, char* argv[]) {
     util::Logger& logger = util::Logger::instance();
     logger.set_level(util::LogLevel::Info);
 
-    /* Ensure we have at least 4 models */
-    if (opts.models.size() < 4) {
-        logger.log(util::LogLevel::Warning,
-                   "Less than 4 models specified; using defaults for base analysts");
-        opts.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    /* Load configuration from file (with sensible defaults) */
+    logger.log(util::LogLevel::Info, "Loading configuration from: " + opts.config_path);
+    core::Configuration config = core::ConfigParser::load_or_default(opts.config_path);
+    logger.log(util::LogLevel::Info, "Configuration loaded (rounds=" + std::to_string(config.rounds) +
+               ", models=" + std::to_string(config.models.size()) + ")");
+
+    /* Override config with CLI arguments if specified */
+    if (opts.rounds > 0) {
+        config.rounds = opts.rounds;
+    }
+    if (!opts.models.empty()) {
+        config.models = opts.models;
+    }
+    if (!opts.ollama_urls.empty()) {
+        config.ollama_urls = opts.ollama_urls;
     }
 
-    /* Create configuration */
-    core::Configuration config;
-    config.rounds = opts.rounds;
-    config.models = opts.models;
-    config.api_type = "ollama";
-    config.prune_enabled = 1;
+    /* Ensure we have at least 4 models */
+    if (config.models.size() < 4) {
+        logger.log(util::LogLevel::Warning,
+                   "Less than 4 models specified; using defaults for base analysts");
+        config.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    }
 
     /* Handle --web mode */
     if (opts.web_mode) {
         logger.log(util::LogLevel::Info, "Starting HTTP server for web dashboard...");
 
         /* Auto-config endpoints for web mode */
-        if (opts.ollama_urls.empty()) {
-            opts.ollama_urls.push_back("http://localhost:11434");
+        if (config.ollama_urls.empty()) {
+            config.ollama_urls.push_back("http://localhost:11434");
         }
 
-        auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(opts.ollama_urls);
+        auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(config.ollama_urls);
 
         if (!llm_client->is_available()) {
             logger.log(util::LogLevel::Error, "LLM service unavailable at configured endpoints");
@@ -139,23 +153,23 @@ int main(int argc, char* argv[]) {
 
     logger.log(util::LogLevel::Info, "Starting Code-Tribunal debate system");
     logger.log(util::LogLevel::Info, "Query: " + opts.query);
-    logger.log(util::LogLevel::Info, "Rounds: " + std::to_string(opts.rounds));
+    logger.log(util::LogLevel::Info, "Rounds: " + std::to_string(config.rounds));
 
     /* Auto-configuration logic: multiple endpoints → parallel, single → sequential */
-    if (opts.ollama_urls.empty()) {
-        opts.ollama_urls.push_back("http://localhost:11434");
+    if (config.ollama_urls.empty()) {
+        config.ollama_urls.push_back("http://localhost:11434");
         logger.log(util::LogLevel::Info, "No Ollama endpoints specified; defaulting to localhost:11434");
         logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint");
-    } else if (opts.ollama_urls.size() == 1) {
-        logger.log(util::LogLevel::Info, "Ollama endpoint: " + opts.ollama_urls[0]);
+    } else if (config.ollama_urls.size() == 1) {
+        logger.log(util::LogLevel::Info, "Ollama endpoint: " + config.ollama_urls[0]);
         logger.log(util::LogLevel::Info, "Parallelism: 1 (sequential) - single endpoint for stability");
     } else {
         logger.log(util::LogLevel::Info, "Multi-endpoint Ollama configuration:");
-        for (size_t i = 0; i < opts.ollama_urls.size(); i++) {
-            logger.log(util::LogLevel::Info, "  Endpoint " + std::to_string(i + 1) + ": " + opts.ollama_urls[i]);
+        for (size_t i = 0; i < config.ollama_urls.size(); i++) {
+            logger.log(util::LogLevel::Info, "  Endpoint " + std::to_string(i + 1) + ": " + config.ollama_urls[i]);
         }
         logger.log(util::LogLevel::Info,
-            "Parallelism: " + std::to_string(opts.ollama_urls.size()) + " (parallel batching enabled)");
+            "Parallelism: " + std::to_string(config.ollama_urls.size()) + " (parallel batching enabled)");
     }
 
     /* Classify query */
@@ -165,7 +179,7 @@ int main(int argc, char* argv[]) {
 
     /* Initialize LLM client with multi-endpoint support */
     logger.log(util::LogLevel::Info, "Initializing LLM client...");
-    auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(opts.ollama_urls);
+    auto llm_client = std::make_unique<llm::MultiEndpointOllamaClient>(config.ollama_urls);
 
     if (!llm_client->is_available()) {
         logger.log(util::LogLevel::Error, "LLM service unavailable at all configured endpoints");
