@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstdio>
 
 namespace tribunal {
 namespace core {
@@ -180,15 +181,116 @@ void ConfigParser::apply_env_overrides(Configuration& config) {
         }
     }
 
-    const char* google_agy_key = std::getenv("GOOGLE_AGY_API_KEY");
-    if (google_agy_key && config.google_agy_api_key.empty()) {
-        config.google_agy_api_key = google_agy_key;
+    /* Google Antigravity API key: GOOGLE_AGY_API_KEY > gcloud credentials > config */
+    if (config.google_agy_api_key.empty()) {
+        const char* google_agy_key = std::getenv("GOOGLE_AGY_API_KEY");
+        if (google_agy_key && *google_agy_key) {
+            config.google_agy_api_key = google_agy_key;
+        } else {
+            /* Try to read from gcloud */
+            std::string gcloud_creds = read_gcloud_credentials();
+            if (!gcloud_creds.empty()) {
+                config.google_agy_api_key = gcloud_creds;
+            }
+        }
     }
 
     const char* google_agy_model = std::getenv("GOOGLE_AGY_MODEL");
     if (google_agy_model && config.google_agy_model.empty()) {
         config.google_agy_model = google_agy_model;
     }
+
+    /* Auto-detect Google Cloud project if not set */
+    if (config.google_agy_endpoint.empty()) {
+        std::string project = read_gcloud_project();
+        if (!project.empty()) {
+            /* Construct endpoint with project */
+            config.google_agy_endpoint = "https://agy.googleapis.com/projects/" + project + "/locations/us-central1/v1beta1";
+        }
+    }
+}
+
+std::string ConfigParser::read_gcloud_project() {
+    /* Try environment variable first */
+    const char* project = std::getenv("GOOGLE_CLOUD_PROJECT");
+    if (project && *project) {
+        return project;
+    }
+
+    /* Try gcloud CLI command */
+    FILE* fp = popen("gcloud config get-value project 2>/dev/null", "r");
+    if (fp) {
+        char buffer[256];
+        if (fgets(buffer, sizeof(buffer), fp)) {
+            pclose(fp);
+            std::string result = trim(std::string(buffer));
+            if (!result.empty() && result != "(unset)") {
+                return result;
+            }
+        }
+        pclose(fp);
+    }
+
+    return "";
+}
+
+std::string ConfigParser::read_gcloud_credentials() {
+    /* Try GOOGLE_APPLICATION_CREDENTIALS env var first */
+    const char* cred_file_env = std::getenv("GOOGLE_APPLICATION_CREDENTIALS");
+    if (cred_file_env) {
+        std::ifstream file(cred_file_env);
+        if (file.is_open()) {
+            std::string line;
+            while (std::getline(file, line)) {
+                /* Look for access_token or client_secret in JSON */
+                size_t token_pos = line.find("\"access_token\":\"");
+                if (token_pos != std::string::npos) {
+                    size_t start = token_pos + 16;
+                    size_t end = line.find("\"", start);
+                    if (end != std::string::npos) {
+                        return line.substr(start, end - start);
+                    }
+                }
+            }
+        }
+    }
+
+    /* Try default gcloud credentials path */
+    const char* home = std::getenv("HOME");
+    if (!home) {
+        return "";
+    }
+
+    std::string credentials_path = std::string(home) + "/.config/gcloud/application_default_credentials.json";
+    std::ifstream file(credentials_path);
+    if (!file.is_open()) {
+        return "";
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        /* Look for access_token or type in credentials JSON */
+        size_t token_pos = line.find("\"access_token\":\"");
+        if (token_pos != std::string::npos) {
+            size_t start = token_pos + 16;
+            size_t end = line.find("\"", start);
+            if (end != std::string::npos) {
+                return line.substr(start, end - start);
+            }
+        }
+
+        /* Alternative: look for client_secret (OAuth) */
+        size_t secret_pos = line.find("\"client_secret\":\"");
+        if (secret_pos != std::string::npos) {
+            size_t start = secret_pos + 17;
+            size_t end = line.find("\"", start);
+            if (end != std::string::npos) {
+                return line.substr(start, end - start);
+            }
+        }
+    }
+
+    return "";
 }
 
 }  /* namespace core */

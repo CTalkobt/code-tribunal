@@ -105,6 +105,27 @@ private:
      * @return API key string if found, empty string otherwise
      */
     static std::string read_claude_cli_credentials();
+
+    /**
+     * read_gcloud_project - Read Google Cloud project from gcloud CLI
+     *
+     * Reads GOOGLE_CLOUD_PROJECT env var or queries gcloud CLI config.
+     * Falls back to reading ~/.config/gcloud/properties if gcloud unavailable.
+     *
+     * @return Project ID string if found, empty string otherwise
+     */
+    static std::string read_gcloud_project();
+
+    /**
+     * read_gcloud_credentials - Read Google API credentials from gcloud
+     *
+     * Reads GOOGLE_APPLICATION_CREDENTIALS env var or looks for
+     * application_default_credentials.json in ~/.config/gcloud/
+     * Extracts access_token or oauth2 token from credentials.
+     *
+     * @return API key/token string if found, empty string otherwise
+     */
+    static std::string read_gcloud_credentials();
 };
 
 }  /* namespace core */
