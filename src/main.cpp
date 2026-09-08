@@ -20,11 +20,13 @@
 #include "core/types.h"
 #include "core/Council.h"
 #include "core/ConfigParser.h"
+#include "core/ConfigValidator.h"
 #include "llm/LLMClient.h"
 #include "llm/OllamaClient.h"
 #include "llm/MultiEndpointOllamaClient.h"
 #include "ui/QueryClassifier.h"
 #include "util/Logging.h"
+#include "util/Resilience.h"
 #include "http/HttpServer.h"
 
 using namespace tribunal;
@@ -110,8 +112,6 @@ int main(int argc, char* argv[]) {
     /* Load configuration from file (with sensible defaults) */
     logger.log(util::LogLevel::Info, "Loading configuration from: " + opts.config_path);
     core::Configuration config = core::ConfigParser::load_or_default(opts.config_path);
-    logger.log(util::LogLevel::Info, "Configuration loaded (rounds=" + std::to_string(config.rounds) +
-               ", models=" + std::to_string(config.models.size()) + ")");
 
     /* Override config with CLI arguments if specified */
     if (opts.rounds > 0) {
@@ -124,11 +124,16 @@ int main(int argc, char* argv[]) {
         config.ollama_urls = opts.ollama_urls;
     }
 
-    /* Ensure we have at least 4 models */
-    if (config.models.size() < 4) {
-        logger.log(util::LogLevel::Warning,
-                   "Less than 4 models specified; using defaults for base analysts");
-        config.models = {"llama3.2", "mistral", "neural-chat", "dolphin-mixtral"};
+    /* Apply defaults and validate configuration */
+    config = core::ConfigValidator::apply_defaults(config);
+    try {
+        core::ConfigValidator::validate(config);
+        logger.log(util::LogLevel::Info, "Configuration validated successfully");
+        logger.log(util::LogLevel::Info, "Rounds=" + std::to_string(config.rounds) +
+                   ", Models=" + std::to_string(config.models.size()) + ", Provider=" + config.api_type);
+    } catch (const core::ConfigValidationError& e) {
+        logger.log(util::LogLevel::Error, std::string(e.what()));
+        return 1;
     }
 
     /* Handle --web mode */

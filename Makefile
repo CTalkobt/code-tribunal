@@ -15,12 +15,14 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/util/Concurrent.cpp \
             src/util/Hash.cpp \
             src/util/Metrics.cpp \
+            src/util/Resilience.cpp \
             src/llm/LLMClient.cpp \
             src/llm/OllamaClient.cpp \
             src/llm/MultiEndpointOllamaClient.cpp \
             src/llm/ClaudeClient.cpp \
             src/llm/GoogleAntigravityClient.cpp \
             src/core/ConfigParser.cpp \
+            src/core/ConfigValidator.cpp \
             src/core/Analyst.cpp \
             src/core/Pool.cpp \
             src/core/Election.cpp \
@@ -116,6 +118,9 @@ src/util/Hash.o: src/util/Hash.cpp src/util/Hash.h
 src/util/Metrics.o: src/util/Metrics.cpp src/util/Metrics.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+src/util/Resilience.o: src/util/Resilience.cpp src/util/Resilience.h src/util/Logging.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 src/llm/LLMClient.o: src/llm/LLMClient.cpp src/llm/LLMClient.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -144,6 +149,9 @@ src/core/Council.o: src/core/Council.cpp src/core/Council.h src/core/Pool.h src/
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/core/ConfigParser.o: src/core/ConfigParser.cpp src/core/ConfigParser.h src/core/types.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/core/ConfigValidator.o: src/core/ConfigValidator.cpp src/core/ConfigValidator.h src/core/types.h src/util/Logging.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/ui/QueryClassifier.o: src/ui/QueryClassifier.cpp src/ui/QueryClassifier.h src/core/types.h
