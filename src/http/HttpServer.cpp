@@ -1,5 +1,6 @@
 #include "HttpServer.h"
 #include "../util/Logging.h"
+#include "../util/Metrics.h"
 #include "../llm/MultiEndpointOllamaClient.h"
 #include <sstream>
 #include <thread>
@@ -8,6 +9,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <iostream>
+#include <chrono>
 
 namespace tribunal {
 namespace http {
@@ -112,6 +114,10 @@ void HttpServer::handle_request(int client) {
         } else {
             send_response(client, 400, "application/json", "{\"error\":\"missing job_id\"}");
         }
+    } else if (path == "/metrics" && method == "GET") {
+        handle_metrics(client);
+    } else if (path == "/api/stats" && method == "GET") {
+        handle_stats(client);
     } else {
         send_response(client, 404, "text/plain", "Not Found");
     }
@@ -287,29 +293,65 @@ void HttpServer::update_job_output(int job_id, const std::string& output, int st
 }
 
 void HttpServer::execute_query_async(ExecutionJob job) {
-    std::thread([this, job]() {
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    std::thread([this, job, start_time]() {
         try {
-            /* Create new LLM client for this thread */
-            auto thread_client = std::make_unique<llm::MultiEndpointOllamaClient>(
-                std::vector<std::string>{"http://localhost:11434"}
+            /* Create new LLM client for this thread using configured provider */
+            auto thread_client = llm::ClientFactory::create_from_config(
+                config_.api_type,
+                config_.claude_api_key,
+                config_.claude_model,
+                config_.google_agy_api_key,
+                config_.google_agy_model,
+                config_.google_agy_endpoint,
+                config_.ollama_urls.empty() ? "" : config_.ollama_urls[0]
             );
 
             if (!council_->initialize_analysts(std::move(thread_client), config_.models)) {
                 update_job_output(job.job_id, "Failed to initialize analysts", 2);
+
+                /* Record failure metric */
+                util::DebateMetrics metrics;
+                metrics.llm_provider = config_.api_type;
+                metrics.success = false;
+                metrics.error = "Failed to initialize analysts";
+                util::Metrics::instance().record_debate(metrics);
                 return;
             }
 
             core::DebateResult result = council_->run_debate(job.query, job.rounds);
 
+            /* Record success metric */
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+            util::DebateMetrics metrics;
+            metrics.query_hash = std::to_string(std::hash<std::string>{}(job.query));
+            metrics.rounds_completed = result.rounds_completed;
+            metrics.total_tokens_used = 0;  /* Would need to track from LLM client */
+            metrics.duration_ms = duration_ms;
+            metrics.success = true;
+            metrics.llm_provider = config_.api_type;
+            util::Metrics::instance().record_debate(metrics);
+
             std::ostringstream output;
             output << "Debate completed.\n";
             output << "Winner: Analyst " << result.final_winner << "\n";
             output << "Rounds: " << result.rounds_completed << "\n";
-            output << "Pruned: " << result.analysts_pruned << " analysts";
+            output << "Pruned: " << result.analysts_pruned << " analysts\n";
+            output << "Duration: " << duration_ms << "ms";
 
             update_job_output(job.job_id, output.str(), 1);
         } catch (const std::exception& e) {
             update_job_output(job.job_id, std::string("Error: ") + e.what(), 2);
+
+            /* Record failure metric */
+            util::DebateMetrics metrics;
+            metrics.llm_provider = config_.api_type;
+            metrics.success = false;
+            metrics.error = e.what();
+            util::Metrics::instance().record_debate(metrics);
         }
     }).detach();
 }
@@ -429,6 +471,16 @@ std::string HttpServer::get_dashboard_html() const {
 </body>
 </html>
 )HTML";
+}
+
+void HttpServer::handle_metrics(int client) {
+    std::string metrics_text = util::Metrics::instance().get_prometheus_text();
+    send_response(client, 200, "text/plain; version=0.0.4", metrics_text);
+}
+
+void HttpServer::handle_stats(int client) {
+    std::string stats_json = util::Metrics::instance().get_json_summary();
+    send_response(client, 200, "application/json", stats_json);
 }
 
 }  /* namespace http */

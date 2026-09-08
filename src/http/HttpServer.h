@@ -56,6 +56,8 @@ struct ExecutionJob {
  * - GET /api/tasks  - List pending/completed jobs (JSON)
  * - POST /api/query - Execute debate query asynchronously (JSON)
  * - GET /api/query?job_id=X - Poll job status and output (JSON)
+ * - GET /metrics    - Prometheus metrics (text format)
+ * - GET /api/stats  - JSON metrics summary
  */
 class HttpServer {
 public:
@@ -203,6 +205,16 @@ private:
      * @param status 0=running, 1=complete, 2=failed
      */
     void update_job_output(int job_id, const std::string& output, int status);
+
+    /**
+     * handle_metrics - GET /metrics - Prometheus metrics endpoint
+     */
+    void handle_metrics(int client);
+
+    /**
+     * handle_stats - GET /api/stats - JSON metrics summary
+     */
+    void handle_stats(int client);
 };
 
 }  /* namespace http */

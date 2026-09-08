@@ -14,6 +14,7 @@ CXX_SRCS  = src/storage/Database.cpp \
             src/util/Logging.cpp \
             src/util/Concurrent.cpp \
             src/util/Hash.cpp \
+            src/util/Metrics.cpp \
             src/llm/LLMClient.cpp \
             src/llm/OllamaClient.cpp \
             src/llm/MultiEndpointOllamaClient.cpp \
@@ -110,6 +111,9 @@ src/util/Concurrent.o: src/util/Concurrent.cpp src/util/Concurrent.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/util/Hash.o: src/util/Hash.cpp src/util/Hash.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+src/util/Metrics.o: src/util/Metrics.cpp src/util/Metrics.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/llm/LLMClient.o: src/llm/LLMClient.cpp src/llm/LLMClient.h
