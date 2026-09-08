@@ -462,6 +462,32 @@ std::string HttpServer::get_dashboard_html() const {
         .export-btn { width: 100%; margin-top: 10px; }
         .button-group { display: flex; gap: 8px; }
         .button-group button { flex: 1; }
+
+        /* Phase 1: Debate Progress Tab */
+        .debate-container { display: flex; flex-direction: column; gap: 15px; height: 100%; }
+        .progress-header { display: flex; justify-content: space-between; align-items: center; }
+        .progress-info { display: flex; gap: 20px; font-size: 12px; }
+        .progress-bar-container { display: flex; gap: 10px; align-items: center; }
+        .progress-bar { flex: 1; height: 20px; background: #2a2a2a; border-radius: 10px; border: 1px solid #444; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #0066cc, #00b4ff); width: 0%; transition: width 0.3s ease; }
+        .argument-display { background: #0a0a0a; border: 1px solid #333; padding: 15px; border-radius: 3px; font-size: 13px; line-height: 1.6; max-height: 400px; overflow-y: auto; font-family: monospace; }
+
+        /* Phase 1: History Tab */
+        .history-container { display: flex; flex-direction: column; gap: 15px; height: 100%; }
+        .history-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        #search-input { padding: 8px 12px; background: #2a2a2a; border: 1px solid #444; color: #e0e0e0; border-radius: 4px; width: 200px; font-size: 12px; }
+        .history-controls { display: flex; gap: 8px; }
+        .history-controls button { padding: 8px 16px; background: #444; color: #fff; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .history-controls button:hover { background: #555; }
+        .history-table-container { overflow-y: auto; flex: 1; }
+        .history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .history-table th, .history-table td { padding: 8px; text-align: left; border-bottom: 1px solid #333; }
+        .history-table th { background: #1e1e1e; color: #0066cc; font-weight: 500; position: sticky; top: 0; }
+        .history-table tr:hover { background: #2a2a2a; cursor: pointer; }
+        .status-success { color: #4caf50; font-weight: 500; }
+        .status-failed { color: #f44336; font-weight: 500; }
+        .history-table button { padding: 4px 8px; font-size: 11px; background: #0066cc; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        .history-table button:hover { background: #0052a3; }
     </style>
 </head>
 <body>
@@ -471,6 +497,8 @@ std::string HttpServer::get_dashboard_html() const {
     </header>
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('query')">Query Interface</button>
+        <button class="tab-btn" onclick="switchTab('debate-progress')">Debate Progress</button>
+        <button class="tab-btn" onclick="switchTab('history')">Query History</button>
         <button class="tab-btn" onclick="switchTab('metrics')">Metrics & Performance</button>
     </div>
 
@@ -491,6 +519,64 @@ std::string HttpServer::get_dashboard_html() const {
             <div class="button-group" style="margin-top: 10px;">
                 <button class="secondary" onclick="exportJSON()">Export JSON</button>
                 <button class="secondary" onclick="exportText()">Export Text</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debate Progress Tab (Phase 1) -->
+    <div id="debate-progress" class="tab-content">
+        <div class="panel" style="height: 100%;">
+            <div class="debate-container">
+                <div class="progress-header">
+                    <h2>Live Debate Progress</h2>
+                    <div class="progress-info">
+                        <span id="round-counter">Round 0/4</span>
+                        <span id="analyst-count">Analysts: 0</span>
+                    </div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div id="progress-percent" style="width: 40px; text-align: right;">0%</div>
+                </div>
+                <div class="argument-display" id="argument-display">
+                    <p>Select a running debate to see real-time progress...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Query History Tab (Phase 1) -->
+    <div id="history" class="tab-content">
+        <div class="panel" style="height: 100%;">
+            <div class="history-container">
+                <div class="history-header">
+                    <h2>Query History & Search</h2>
+                    <input type="text" id="search-input" placeholder="Search queries..." onkeyup="searchHistory(this.value)">
+                </div>
+                <div class="history-controls">
+                    <button onclick="sortHistoryBy('timestamp')">Sort by Date</button>
+                    <button onclick="sortHistoryBy('duration_ms')">Sort by Duration</button>
+                    <button onclick="sortHistoryBy('provider')">Sort by Provider</button>
+                </div>
+                <div class="history-table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Query</th>
+                                <th>Provider</th>
+                                <th>Duration (ms)</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody">
+                            <tr><td colspan="6" style="text-align: center; padding: 20px;">Loading history...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -533,8 +619,17 @@ std::string HttpServer::get_dashboard_html() const {
     <script>
         let selectedJobId = null;
         let latencyChart = null;
+        let debatePollingInterval = null;
+        let allHistory = [];
+        let filteredHistory = [];
 
         function switchTab(tabName) {
+            /* Stop debate polling if switching away */
+            if (debatePollingInterval) {
+                clearInterval(debatePollingInterval);
+                debatePollingInterval = null;
+            }
+
             /* Hide all tabs */
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -545,6 +640,10 @@ std::string HttpServer::get_dashboard_html() const {
 
             if (tabName === 'metrics') {
                 refreshMetrics();
+            } else if (tabName === 'debate-progress' && selectedJobId) {
+                startDebatePolling(selectedJobId);
+            } else if (tabName === 'history') {
+                loadQueryHistory();
             }
         }
 
@@ -562,6 +661,112 @@ std::string HttpServer::get_dashboard_html() const {
                 selectedJobId = data.job_id;
                 pollJob(data.job_id);
             });
+        }
+
+        /* Phase 1: Debate Progress Polling */
+        function startDebatePolling(jobId) {
+            debatePollingInterval = setInterval(() => {
+                fetch(`/api/debate/${jobId}/progress`)
+                    .then(r => r.json())
+                    .then(data => {
+                        updateDebateDisplay(data);
+                    })
+                    .catch(() => {
+                        clearInterval(debatePollingInterval);
+                        debatePollingInterval = null;
+                    });
+            }, 500);
+
+            fetch(`/api/debate/${jobId}/progress`)
+                .then(r => r.json())
+                .then(data => updateDebateDisplay(data));
+        }
+
+        function updateDebateDisplay(data) {
+            document.getElementById('round-counter').textContent =
+                `Round ${data.current_round}/${data.total_rounds}`;
+
+            document.getElementById('analyst-count').textContent =
+                `Analysts: ${data.analyst_count}`;
+
+            const percent = data.progress_percent || 0;
+            document.getElementById('progress-fill').style.width = percent + '%';
+            document.getElementById('progress-percent').textContent = percent + '%';
+
+            let argText = `Debate Progress\n\n`;
+            argText += `Query: ${data.query}\n`;
+            argText += `Provider: ${data.provider}\n`;
+            argText += `Duration: ${data.duration_ms}ms\n`;
+            argText += `Status: ${['Running', 'Complete', 'Failed'][data.status]}\n`;
+            argText += `Progress: ${percent}%\n`;
+            document.getElementById('argument-display').textContent = argText;
+
+            if (data.status !== 0) {
+                if (debatePollingInterval) {
+                    clearInterval(debatePollingInterval);
+                    debatePollingInterval = null;
+                }
+            }
+        }
+
+        /* Phase 1: Query History Functions */
+        function loadQueryHistory() {
+            fetch('/api/history')
+                .then(r => r.json())
+                .then(data => {
+                    allHistory = data.history || [];
+                    filteredHistory = [...allHistory];
+                    displayHistory();
+                });
+        }
+
+        function searchHistory(searchText) {
+            if (!searchText.trim()) {
+                filteredHistory = [...allHistory];
+            } else {
+                filteredHistory = allHistory.filter(job =>
+                    job.query.toLowerCase().includes(searchText.toLowerCase())
+                );
+            }
+            displayHistory();
+        }
+
+        function sortHistoryBy(field) {
+            filteredHistory.sort((a, b) => {
+                if (typeof a[field] === 'string') {
+                    return a[field].localeCompare(b[field]);
+                }
+                return a[field] - b[field];
+            });
+            displayHistory();
+        }
+
+        function displayHistory() {
+            const tbody = document.getElementById('history-tbody');
+            if (filteredHistory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">No queries found</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filteredHistory.map(job => `
+                <tr>
+                    <td>${job.job_id}</td>
+                    <td>${job.query.substring(0, 40)}${job.query.length > 40 ? '...' : ''}</td>
+                    <td>${job.provider}</td>
+                    <td>${job.duration_ms}</td>
+                    <td class="status-${job.success ? 'success' : 'failed'}">
+                        ${job.success ? 'Success' : 'Failed'}
+                    </td>
+                    <td>
+                        <button onclick="rerunDebate('${job.query.replace(/'/g, "\\'").replace(/"/g, '\\"')}')">Re-run</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function rerunDebate(query) {
+            document.getElementById('query-input').value = query;
+            switchTab('query');
+            submitQuery();
         }
 
         function pollJob(jobId) {
@@ -708,6 +913,11 @@ std::string HttpServer::get_dashboard_html() const {
 
         setInterval(refreshJobs, 1000);
         refreshJobs();
+
+        /* Load query history on page load */
+        loadQueryHistory();
+        /* Refresh history every 5 seconds */
+        setInterval(loadQueryHistory, 5000);
     </script>
 </body>
 </html>
