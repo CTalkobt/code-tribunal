@@ -174,6 +174,9 @@ TEST_CLASSIFIER = test_classifier
 TEST_ANALYST = test_analyst
 TEST_POOL = test_pool_test
 TEST_LOGGER = test_logger
+TEST_RESILIENCE = test_resilience
+TEST_CONFIG_VALIDATOR = test_config_validator
+TEST_SYSTEM_INTEGRATION = test_system_integration
 
 # Compile all additional tests
 $(TEST_OLLAMA): tests/test_ollama_client.o
@@ -245,8 +248,29 @@ $(TEST_LOGGER): tests/test_logger.o src/util/Logging.o
 tests/test_logger.o: tests/test_logger.cpp src/util/Logging.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+$(TEST_RESILIENCE): tests/test_resilience.o src/util/Resilience.o src/util/Logging.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running Resilience tests..." && ./$@
+
+tests/test_resilience.o: tests/test_resilience.cpp src/util/Resilience.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_CONFIG_VALIDATOR): tests/test_config_validator.o src/core/ConfigValidator.o src/util/Logging.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running Config Validator tests..." && ./$@
+
+tests/test_config_validator.o: tests/test_config_validator.cpp src/core/ConfigValidator.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TEST_SYSTEM_INTEGRATION): tests/test_system_integration.o src/core/ConfigParser.o src/core/ConfigValidator.o src/util/Logging.o src/util/Metrics.o src/llm/LLMClient.o src/llm/OllamaClient.o src/llm/ClaudeClient.o src/llm/GoogleAntigravityClient.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(CXXLDFLAGS)
+	@echo "Running System Integration tests..." && ./$@
+
+tests/test_system_integration.o: tests/test_system_integration.cpp src/core/ConfigValidator.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 # Run comprehensive test suite (29 original + 48 new = 77 tests total)
-test-all: tests integration-test $(TEST_OLLAMA) $(TEST_ELECTION) $(TEST_THREADPOOL) $(TEST_CLASSIFIER) $(TEST_ANALYST) $(TEST_POOL) $(TEST_LOGGER)
+test-all: tests integration-test $(TEST_OLLAMA) $(TEST_ELECTION) $(TEST_THREADPOOL) $(TEST_CLASSIFIER) $(TEST_ANALYST) $(TEST_POOL) $(TEST_LOGGER) $(TEST_RESILIENCE) $(TEST_CONFIG_VALIDATOR) $(TEST_SYSTEM_INTEGRATION)
 	@echo "\n=========================================="
 	@echo "✓ All 77 comprehensive tests completed"
 	@echo "=========================================="

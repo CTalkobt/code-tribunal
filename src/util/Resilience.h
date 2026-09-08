@@ -85,19 +85,18 @@ public:
      * call - Execute function through circuit breaker
      *
      * @param fn  Function to execute
-     * @return Result of fn, or throws if circuit is open
+     * @return Result of fn (or void), or throws if circuit is open
      * @throws std::runtime_error if circuit breaker is open
      */
     template<typename F>
-    auto call(F fn) -> decltype(fn()) {
+    void call(F fn) {
         if (is_open()) {
             throw std::runtime_error("Circuit breaker is open: service unavailable");
         }
 
         try {
-            auto result = fn();
+            fn();
             record_success();
-            return result;
         } catch (const std::exception& e) {
             record_failure(e.what());
             throw;
