@@ -488,6 +488,31 @@ std::string HttpServer::get_dashboard_html() const {
         .status-failed { color: #f44336; font-weight: 500; }
         .history-table button { padding: 4px 8px; font-size: 11px; background: #0066cc; color: white; border: none; border-radius: 3px; cursor: pointer; }
         .history-table button:hover { background: #0052a3; }
+
+        /* Phase 2: Debate Visualization */
+        .analyst-card { background: #2a2a2a; border: 1px solid #444; border-radius: 6px; padding: 12px; transition: all 0.3s; }
+        .analyst-card:hover { background: #333; border-color: #0066cc; box-shadow: 0 0 8px rgba(0,102,204,0.3); }
+        .analyst-card.eliminated { opacity: 0.5; border-left: 3px solid #f44336; }
+        .analyst-card.winner { border-left: 3px solid #4caf50; box-shadow: 0 0 12px rgba(76,175,80,0.4); }
+        .analyst-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .analyst-name { font-weight: 600; font-size: 13px; color: #0066cc; }
+        .analyst-model { font-size: 11px; opacity: 0.7; }
+        .analyst-status { display: inline-block; padding: 2px 6px; background: #0066cc; color: white; border-radius: 3px; font-size: 10px; font-weight: 500; }
+        .analyst-status.idle { background: #444; }
+        .analyst-confidence-bar { background: #1a1a1a; border-radius: 3px; height: 4px; margin-top: 8px; overflow: hidden; }
+        .analyst-confidence-fill { background: linear-gradient(90deg,#ffb74d,#4caf50); height: 100%; width: 0%; transition: width 0.5s ease; }
+        .analyst-votes { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+        .vote-badge { background: #0066cc; color: white; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
+        .round-indicator { min-width: 80px; padding: 10px; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; text-align: center; cursor: pointer; transition: all 0.3s; }
+        .round-indicator:hover { background: #333; border-color: #0066cc; }
+        .round-indicator.active { background: #0066cc; color: white; }
+        .round-number { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+        .round-analysts { font-size: 10px; opacity: 0.7; }
+
+        /* Phase 2: Advanced Metrics */
+        .metric-range-btn { background: #444; color: #fff; border: 1px solid #555; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; margin-right: 5px; }
+        .metric-range-btn:hover { background: #555; border-color: #0066cc; }
+        .metric-range-btn.active { background: #0066cc; border-color: #0066cc; }
     </style>
 </head>
 <body>
@@ -499,6 +524,8 @@ std::string HttpServer::get_dashboard_html() const {
         <button class="tab-btn active" onclick="switchTab('query')">Query Interface</button>
         <button class="tab-btn" onclick="switchTab('debate-progress')">Debate Progress</button>
         <button class="tab-btn" onclick="switchTab('history')">Query History</button>
+        <button class="tab-btn" onclick="switchTab('visualization')">Visualization</button>
+        <button class="tab-btn" onclick="switchTab('advanced-metrics')">Advanced Metrics</button>
         <button class="tab-btn" onclick="switchTab('metrics')">Metrics & Performance</button>
     </div>
 
@@ -581,6 +608,42 @@ std::string HttpServer::get_dashboard_html() const {
         </div>
     </div>
 
+    <!-- Debate Visualization Tab (Phase 2) -->
+    <div id="visualization" class="tab-content grid-2">
+        <div class="panel">
+            <h2>Analyst Cards</h2>
+            <div id="analyst-cards-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"></div>
+        </div>
+        <div class="panel">
+            <h2>Debate Metrics</h2>
+            <div class="chart-container"><canvas id="confidenceChart"></canvas></div>
+            <div class="chart-container"><canvas id="votesChart"></canvas></div>
+        </div>
+        <div class="panel" style="grid-column: 1 / -1;">
+            <h2>Round Timeline</h2>
+            <div id="round-timeline" style="display: flex; gap: 10px; overflow-x: auto; padding: 10px;"></div>
+        </div>
+    </div>
+
+    <!-- Advanced Metrics Tab (Phase 2) -->
+    <div id="advanced-metrics" class="tab-content">
+        <div style="background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333;">
+            <div class="button-group">
+                <button class="metric-range-btn active" onclick="switchMetricsRange(24)">Last 24h</button>
+                <button class="metric-range-btn" onclick="switchMetricsRange(168)">Last 7 days</button>
+                <button class="metric-range-btn" onclick="switchMetricsRange(0)">All time</button>
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px;">
+            <div class="panel"><h2>Provider Latency Trends</h2><div class="chart-container"><canvas id="latencyTrendsChart"></canvas></div></div>
+            <div class="panel"><h2>Success Rate by Provider</h2><div class="chart-container"><canvas id="successRateChart"></canvas></div></div>
+            <div class="panel"><h2>Token Usage Distribution</h2><div class="chart-container"><canvas id="tokenHistogramChart"></canvas></div></div>
+            <div class="panel"><h2>Model Performance Comparison</h2><div class="chart-container"><canvas id="modelPerformanceChart"></canvas></div></div>
+            <div class="panel" style="grid-column: 1 / -1;"><h2>Time-Series Metrics</h2><div class="chart-container" style="height: 300px;"><canvas id="timeseriesChart"></canvas></div></div>
+            <div class="panel" style="grid-column: 1 / -1;"><h2>Latency Percentiles (P50/P95/P99)</h2><div class="chart-container" style="height: 250px;"><canvas id="percentilesChart"></canvas></div></div>
+        </div>
+    </div>
+
     <!-- Metrics Tab -->
     <div id="metrics" class="tab-content grid-2">
         <div class="panel">
@@ -644,6 +707,10 @@ std::string HttpServer::get_dashboard_html() const {
                 startDebatePolling(selectedJobId);
             } else if (tabName === 'history') {
                 loadQueryHistory();
+            } else if (tabName === 'visualization' && selectedJobId) {
+                startVisualizationPolling(selectedJobId);
+            } else if (tabName === 'advanced-metrics') {
+                refreshAdvancedMetrics();
             }
         }
 
@@ -767,6 +834,233 @@ std::string HttpServer::get_dashboard_html() const {
             document.getElementById('query-input').value = query;
             switchTab('query');
             submitQuery();
+        }
+
+        /* Phase 2: Debate Visualization */
+        let visualizationChart = null, votesChart = null, currentVisualizationJobId = null;
+
+        function startVisualizationPolling(jobId) {
+            currentVisualizationJobId = jobId;
+            updateVisualization(jobId);
+            const poll = setInterval(() => {
+                if (currentVisualizationJobId === jobId) updateVisualization(jobId);
+                else clearInterval(poll);
+            }, 1000);
+        }
+
+        function updateVisualization(jobId) {
+            fetch(`/api/debate/${jobId}/visualization`)
+                .then(r => r.json())
+                .then(data => {
+                    displayAnalystCards(data.analysts);
+                    updateConfidenceChart(data.analysts);
+                    updateVotesChart(data.analysts);
+                    updateRoundTimeline(data.total_rounds, data.current_round);
+                })
+                .catch(() => {});
+        }
+
+        function displayAnalystCards(analysts) {
+            const container = document.getElementById('analyst-cards-container');
+            if (!container || !analysts) return;
+            container.innerHTML = (analysts || []).map(a => `
+                <div class="analyst-card ${a.eliminated_round >= 0 ? 'eliminated' : ''}">
+                    <div class="analyst-header">
+                        <div><div class="analyst-name">${a.name}</div><div class="analyst-model">${a.provider}</div></div>
+                        <div class="analyst-status ${a.confidence < 30 ? 'idle' : ''}">${a.confidence}%</div>
+                    </div>
+                    <div class="analyst-confidence-bar"><div class="analyst-confidence-fill" style="width: ${a.confidence}%"></div></div>
+                    <div class="analyst-votes"><span>Votes:</span><span class="vote-badge">${a.votes}</span></div>
+                    ${a.eliminated_round >= 0 ? `<div style="font-size:10px;color:#f44336;margin-top:6px;">❌ Eliminated R${a.eliminated_round}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function updateConfidenceChart(analysts) {
+            const ctx = document.getElementById('confidenceChart');
+            if (!ctx) return;
+            const labels = (analysts || []).map(a => a.name);
+            const confidences = (analysts || []).map(a => a.confidence);
+            const colors = (analysts || []).map(a => a.eliminated_round >= 0 ? '#999' : '#0066cc');
+            if (visualizationChart) {
+                visualizationChart.data.labels = labels;
+                visualizationChart.data.datasets[0].data = confidences;
+                visualizationChart.data.datasets[0].backgroundColor = colors;
+                visualizationChart.update();
+            } else {
+                visualizationChart = new Chart(ctx, {
+                    type: 'bar', data: { labels, datasets: [{label: 'Confidence Score', data: confidences, backgroundColor: colors, borderColor: '#444', borderWidth: 1}] },
+                    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: {legend: {display: false}}, scales: {x: {max: 100, ticks: {color: '#999'}, grid: {color: '#333'}}, y: {ticks: {color: '#999'}}}}
+                });
+            }
+        }
+
+        function updateVotesChart(analysts) {
+            const ctx = document.getElementById('votesChart');
+            if (!ctx) return;
+            const labels = (analysts || []).map(a => a.name);
+            const votes = (analysts || []).map(a => a.votes);
+            if (votesChart) {
+                votesChart.data.labels = labels;
+                votesChart.data.datasets[0].data = votes;
+                votesChart.update();
+            } else {
+                votesChart = new Chart(ctx, {
+                    type: 'doughnut', data: { labels, datasets: [{data: votes, backgroundColor: ['#0066cc', '#00cc66', '#ffb74d', '#f44336', '#9c27b0', '#00bcd4', '#ff5722', '#607d8b']}] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {labels: {color: '#999'}}}}
+                });
+            }
+        }
+
+        function updateRoundTimeline(totalRounds, currentRound) {
+            const container = document.getElementById('round-timeline');
+            if (!container) return;
+            let html = '';
+            for (let i = 1; i <= totalRounds; i++) {
+                html += `<div class="round-indicator ${i === currentRound ? 'active' : ''}" onclick="selectRound(${i})"><div class="round-number">Round ${i}</div><div class="round-analysts">Active</div></div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        /* Phase 2: Advanced Metrics */
+        let latencyTrendsChart = null, successRateChart = null, tokenHistogramChart = null, modelPerformanceChart = null, timeseriesChart = null, percentilesChart = null, currentMetricsHours = 24;
+
+        function switchMetricsRange(hours) {
+            currentMetricsHours = hours;
+            document.querySelectorAll('.metric-range-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            refreshAdvancedMetrics();
+        }
+
+        function refreshAdvancedMetrics() {
+            updateLatencyTrendsChart();
+            updateSuccessRateChart();
+            updateTokenHistogramChart();
+            updateModelPerformanceChart();
+            updateTimeseriesChart();
+            updatePercentilesChart();
+        }
+
+        function updateLatencyTrendsChart() {
+            fetch(`/api/metrics/trends?hours=${currentMetricsHours}`)
+                .then(r => r.json())
+                .then(data => {
+                    const providers = Object.keys(data.providers);
+                    const latencies = providers.map(p => data.providers[p].latencies[0]);
+                    const ctx = document.getElementById('latencyTrendsChart');
+                    if (latencyTrendsChart) {
+                        latencyTrendsChart.data.labels = providers;
+                        latencyTrendsChart.data.datasets[0].data = latencies;
+                        latencyTrendsChart.update();
+                    } else {
+                        latencyTrendsChart = new Chart(ctx, {
+                            type: 'line', data: { labels: providers, datasets: [{label: 'Latency (ms)', data: latencies, borderColor: '#0066cc', backgroundColor: 'rgba(0,102,204,0.1)', tension: 0.4, fill: true}] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {labels: {color: '#999'}}}, scales: {y: {ticks: {color: '#999'}, grid: {color: '#333'}}, x: {ticks: {color: '#999'}, grid: {color: '#333'}}}}
+                        });
+                    }
+                });
+        }
+
+        function updateSuccessRateChart() {
+            fetch(`/api/metrics/trends?hours=${currentMetricsHours}`)
+                .then(r => r.json())
+                .then(data => {
+                    const providers = Object.keys(data.providers);
+                    const successRates = providers.map(p => data.providers[p].success_rate);
+                    const ctx = document.getElementById('successRateChart');
+                    if (successRateChart) {
+                        successRateChart.data.labels = providers;
+                        successRateChart.data.datasets[0].data = successRates;
+                        successRateChart.update();
+                    } else {
+                        successRateChart = new Chart(ctx, {
+                            type: 'bar', data: { labels: providers, datasets: [{label: 'Success Rate (%)', data: successRates, backgroundColor: successRates.map(r => r > 80 ? '#4caf50' : r > 60 ? '#ffb74d' : '#f44336')}] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {y: {max: 100, ticks: {color: '#999'}, grid: {color: '#333'}}, x: {ticks: {color: '#999'}}}}
+                        });
+                    }
+                });
+        }
+
+        function updateTokenHistogramChart() {
+            fetch(`/api/metrics/tokens?hours=${currentMetricsHours}`)
+                .then(r => r.json())
+                .then(data => {
+                    const ctx = document.getElementById('tokenHistogramChart');
+                    if (tokenHistogramChart) {
+                        tokenHistogramChart.data.labels = data.labels;
+                        tokenHistogramChart.data.datasets[0].data = data.bins;
+                        tokenHistogramChart.update();
+                    } else {
+                        tokenHistogramChart = new Chart(ctx, {
+                            type: 'bar', data: { labels: data.labels, datasets: [{label: 'Debates', data: data.bins, backgroundColor: '#00cc66'}] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {y: {ticks: {color: '#999'}, grid: {color: '#333'}}, x: {ticks: {color: '#999'}}}}
+                        });
+                    }
+                });
+        }
+
+        function updateModelPerformanceChart() {
+            fetch(`/api/metrics/models?hours=${currentMetricsHours}`)
+                .then(r => r.json())
+                .then(data => {
+                    const ctx = document.getElementById('modelPerformanceChart');
+                    const labels = data.models.map(m => m.name);
+                    const latencies = data.models.map(m => m.avg_latency);
+                    if (modelPerformanceChart) {
+                        modelPerformanceChart.data.labels = labels;
+                        modelPerformanceChart.data.datasets[0].data = latencies;
+                        modelPerformanceChart.update();
+                    } else {
+                        modelPerformanceChart = new Chart(ctx, {
+                            type: 'bar', data: { labels, datasets: [{label: 'Avg Latency (ms)', data: latencies, backgroundColor: '#ffb74d'}] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {y: {ticks: {color: '#999'}, grid: {color: '#333'}}, x: {ticks: {color: '#999'}}}}
+                        });
+                    }
+                });
+        }
+
+        function updateTimeseriesChart() {
+            fetch(`/api/metrics/timeseries?hours=${currentMetricsHours}`)
+                .then(r => r.json())
+                .then(data => {
+                    const ctx = document.getElementById('timeseriesChart');
+                    const timestamps = data.timestamps.map(ts => new Date(ts).toLocaleTimeString());
+                    if (timeseriesChart) {
+                        timeseriesChart.data.labels = timestamps;
+                        timeseriesChart.data.datasets[0].data = data.latencies;
+                        timeseriesChart.update();
+                    } else {
+                        timeseriesChart = new Chart(ctx, {
+                            type: 'line', data: { labels: timestamps, datasets: [{label: 'Latency (ms)', data: data.latencies, borderColor: '#0066cc', backgroundColor: 'rgba(0,102,204,0.1)', tension: 0.4, fill: true, pointRadius: 2}] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {labels: {color: '#999'}}}, scales: {y: {ticks: {color: '#999'}, grid: {color: '#333'}}, x: {ticks: {color: '#999'}}}}
+                        });
+                    }
+                });
+        }
+
+        function updatePercentilesChart() {
+            const providers = ['ollama', 'claude', 'google-agy'];
+            Promise.all(providers.map(p => fetch(`/api/metrics/percentiles?provider=${p}&hours=${currentMetricsHours}`).then(r => r.json())))
+                .then(results => {
+                    const ctx = document.getElementById('percentilesChart');
+                    const labels = ['P50', 'P95', 'P99'];
+                    const datasets = results.map((result, idx) => ({
+                        label: result.provider,
+                        data: [result.p50, result.p95, result.p99],
+                        borderColor: ['#0066cc', '#00cc66', '#ffb74d'][idx],
+                        backgroundColor: `rgba(0,102,204,${0.1 + idx * 0.1})`,
+                        tension: 0.4
+                    }));
+                    if (percentilesChart) {
+                        percentilesChart.data.datasets = datasets;
+                        percentilesChart.update();
+                    } else {
+                        percentilesChart = new Chart(ctx, {
+                            type: 'line', data: {labels, datasets},
+                            options: { responsive: true, maintainAspectRatio: false, plugins: {legend: {labels: {color: '#999'}}}, scales: {y: {ticks: {color: '#999'}, grid: {color: '#333'}}, x: {ticks: {color: '#999'}}}}
+                        });
+                    }
+                });
         }
 
         function pollJob(jobId) {
