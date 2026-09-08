@@ -48,6 +48,7 @@ std::unique_ptr<LLMClient> ClientFactory::create_from_config(
     const std::string& claude_model,
     const std::string& google_agy_api_key,
     const std::string& google_agy_model,
+    const std::string& google_agy_endpoint,
     const std::string& ollama_url,
     int timeout_sec
 ) {
@@ -63,7 +64,7 @@ std::unique_ptr<LLMClient> ClientFactory::create_from_config(
         return std::make_unique<ClaudeClient>(claude_api_key, model, timeout_sec);
     }
     else if (lower_type == "google-agy" || lower_type == "google_agy") {
-        return std::make_unique<GoogleAntigravityClient>(google_agy_api_key, google_agy_model, "", timeout_sec);
+        return std::make_unique<GoogleAntigravityClient>(google_agy_api_key, google_agy_model, google_agy_endpoint, timeout_sec);
     }
     else {
         throw std::invalid_argument(

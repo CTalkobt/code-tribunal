@@ -148,6 +148,7 @@ int main(int argc, char* argv[]) {
                 config.claude_model,
                 config.google_agy_api_key,
                 config.google_agy_model,
+                config.google_agy_endpoint,
                 config.ollama_urls.empty() ? "" : config.ollama_urls[0]
             );
 
@@ -205,6 +206,7 @@ int main(int argc, char* argv[]) {
             config.claude_model,
             config.google_agy_api_key,
             config.google_agy_model,
+            config.google_agy_endpoint,
             config.ollama_urls.empty() ? "" : config.ollama_urls[0],
             120  /* timeout in seconds */
         );

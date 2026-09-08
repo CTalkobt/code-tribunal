@@ -195,6 +195,7 @@ public:
      * @param claude_model       Claude model name (optional, default: claude-3-5-sonnet-20241022)
      * @param google_agy_api_key Google Antigravity API key (optional)
      * @param google_agy_model   Google Antigravity model name (optional)
+     * @param google_agy_endpoint Google Antigravity endpoint URL (optional, default: auto-constructed or v1beta1)
      * @param ollama_url         Ollama server URL (optional, default: http://localhost:11434)
      * @param timeout_sec        Request timeout in seconds (default: 120)
      * @return  Unique pointer to new client
@@ -206,6 +207,7 @@ public:
         const std::string& claude_model = "",
         const std::string& google_agy_api_key = "",
         const std::string& google_agy_model = "",
+        const std::string& google_agy_endpoint = "",
         const std::string& ollama_url = "",
         int timeout_sec = 120
     );
