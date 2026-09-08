@@ -34,6 +34,19 @@ namespace tribunal {
 namespace http {
 
 /**
+ * AnalystData - Tracks individual analyst information for visualization
+ */
+struct AnalystData {
+    std::string id;           /* Analyst identifier */
+    std::string name;         /* Model name */
+    std::string model_provider;
+    int confidence = 0;       /* Final confidence [0-100] */
+    int votes = 0;            /* Final vote count */
+    int eliminated_round = -1; /* -1 if not eliminated */
+    float argument_strength = 0.0f; /* Average argument strength */
+};
+
+/**
  * ExecutionJob - Tracks async query execution with progress
  */
 struct ExecutionJob {
@@ -46,6 +59,7 @@ struct ExecutionJob {
     int rounds = 4;
     int current_round = 0;    /* For progress tracking */
     int analyst_count = 0;    /* Active analysts */
+    std::vector<AnalystData> analysts; /* Individual analyst tracking */
     std::time_t start_time = 0;
     int duration_ms = 0;
     bool success = false;
@@ -234,6 +248,11 @@ private:
      * handle_debate_progress - GET /api/debate/{job_id}/progress - Real-time debate progress
      */
     void handle_debate_progress(int client, int job_id);
+
+    /**
+     * handle_debate_visualization - GET /api/debate/{job_id}/visualization - Detailed visualization data
+     */
+    void handle_debate_visualization(int client, int job_id);
 };
 
 }  /* namespace http */

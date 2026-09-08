@@ -132,10 +132,19 @@ void HttpServer::handle_request(int client) {
     } else if (path.substr(0, 15) == "/api/debate/" && method == "GET") {
         /* Extract job_id from path */
         size_t progress_pos = path.find("/progress");
+        size_t viz_pos = path.find("/visualization");
+
         if (progress_pos != std::string::npos) {
             try {
                 int job_id = std::stoi(path.substr(11, progress_pos - 11));
                 handle_debate_progress(client, job_id);
+            } catch (...) {
+                send_response(client, 400, "application/json", "{\"error\":\"invalid job_id\"}");
+            }
+        } else if (viz_pos != std::string::npos) {
+            try {
+                int job_id = std::stoi(path.substr(11, viz_pos - 11));
+                handle_debate_visualization(client, job_id);
             } catch (...) {
                 send_response(client, 400, "application/json", "{\"error\":\"invalid job_id\"}");
             }
@@ -761,6 +770,55 @@ void HttpServer::handle_debate_progress(int client, int job_id) {
     ss << "  \"provider\": \"" << job.provider << "\",\n";
     ss << "  \"duration_ms\": " << job.duration_ms << ",\n";
     ss << "  \"progress_percent\": " << (job.rounds > 0 ? (100 * job.current_round / job.rounds) : 0) << "\n";
+    ss << "}\n";
+
+    send_response(client, 200, "application/json", ss.str());
+}
+
+void HttpServer::handle_debate_visualization(int client, int job_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto job_iter = jobs_.find(job_id);
+    if (job_iter == jobs_.end()) {
+        send_response(client, 404, "application/json", "{\"error\":\"job not found\"}");
+        return;
+    }
+
+    const auto& job = job_iter->second;
+
+    /* Build analysts array */
+    std::ostringstream analysts_json;
+    analysts_json << "[\n";
+    for (size_t i = 0; i < job.analysts.size(); ++i) {
+        const auto& analyst = job.analysts[i];
+        if (i > 0) analysts_json << ",\n";
+        analysts_json << "    {\n";
+        analysts_json << "      \"id\": \"" << analyst.id << "\",\n";
+        analysts_json << "      \"name\": \"" << analyst.name << "\",\n";
+        analysts_json << "      \"provider\": \"" << analyst.model_provider << "\",\n";
+        analysts_json << "      \"confidence\": " << analyst.confidence << ",\n";
+        analysts_json << "      \"votes\": " << analyst.votes << ",\n";
+        analysts_json << "      \"eliminated_round\": " << analyst.eliminated_round << ",\n";
+        analysts_json << "      \"argument_strength\": " << analyst.argument_strength << "\n";
+        analysts_json << "    }\n";
+    }
+    analysts_json << "  ]";
+
+    /* Build full response */
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"job_id\": " << job.job_id << ",\n";
+    ss << "  \"query\": \"" << job.query << "\",\n";
+    ss << "  \"status\": " << job.status << ",\n";
+    ss << "  \"current_round\": " << job.current_round << ",\n";
+    ss << "  \"total_rounds\": " << job.rounds << ",\n";
+    ss << "  \"provider\": \"" << job.provider << "\",\n";
+    ss << "  \"duration_ms\": " << job.duration_ms << ",\n";
+    ss << "  \"analysts\": " << analysts_json.str() << ",\n";
+    ss << "  \"winner\": {\n";
+    ss << "    \"analyst_id\": \"analysis_pending\",\n";
+    ss << "    \"confidence\": 0\n";
+    ss << "  }\n";
     ss << "}\n";
 
     send_response(client, 200, "application/json", ss.str());
